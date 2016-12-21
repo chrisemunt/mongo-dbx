@@ -106,7 +106,7 @@ Version 1.2.9 20 December 2016:
 
 #define MGX_VERSION_MAJOR        1
 #define MGX_VERSION_MINOR        2
-#define MGX_VERSION_BUILD        9
+#define MGX_VERSION_BUILD        10
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -133,6 +133,16 @@ Version 1.2.9 20 December 2016:
 #define MGX_ERROR_SIZE              512
 
 #if MGX_NODE_VERSION >= 1200
+
+#if MGX_NODE_VERSION >= 70000
+#define MGX_TOINT32(a)              a->Int32Value()
+#define MGX_TOUINT32(a)             a->Uint32Value()
+#define MGX_TONUMBER(a)             a->NumberValue()
+#else
+#define MGX_TOINT32(a)              a->ToInt32()->Value()
+#define MGX_TOUINT32(a)             a->ToUint32()->Value()
+#define MGX_TONUMBER(a)             a->ToNumber()->Value()
+#endif
 
 #define MGX_STRING_NEW(a)           String::NewFromUtf8(isolate, a)
 #define MGX_STRING_NEWN(a, b)       String::NewFromUtf8(isolate, a, String::kNormalString, b)
@@ -1101,10 +1111,10 @@ public:
             ret = bson_finish(bobj);
          }
          if (js_narg > (obj_argn + 2) && args[obj_argn + 2]->IsNumber()) {
-            baton->p_mgxapi->limit = (int) args[obj_argn + 2]->ToInt32()->Value();
+            baton->p_mgxapi->limit = (int) MGX_TOINT32(args[obj_argn + 2]);
          }
          if (js_narg > (obj_argn + 3) && args[obj_argn + 3]->IsNumber()) {
-            baton->p_mgxapi->skip = (int) args[obj_argn + 3]->ToInt32()->Value();
+            baton->p_mgxapi->skip = (int) MGX_TOINT32(args[obj_argn + 3]);
          }
          if (js_narg > (obj_argn + 4) && args[obj_argn + 4]->IsString()) {
             char buffer[256];
@@ -1444,16 +1454,16 @@ mongox_make_baton_exit:
 
          }
          else if (jobj->Get(name_str)->IsUint32()) {
-            uint32_t uint32 = jobj->Get(name_str)->ToUint32()->Value();
+            uint32_t uint32 = MGX_TOUINT32(jobj->Get(name_str));
             ret = bson_append_int(bobj, name, uint32);
          }
          else if (jobj->Get(name_str)->IsInt32()) {
-            int32_t int32 = jobj->Get(name_str)->ToInt32()->Value();
+            int32_t int32 = MGX_TOINT32(jobj->Get(name_str));
             ret = bson_append_int(bobj, name, int32);
          }
          else if (jobj->Get(name_str)->IsNumber()) {
 
-            double num = jobj->Get(name_str)->ToNumber()->Value();
+            double num = MGX_TONUMBER(jobj->Get(name_str));
 
             ret = bson_append_double(bobj, name, num);
          }
@@ -1545,17 +1555,17 @@ mongox_make_baton_exit:
 
          }
          else if (jarray->Get(n)->IsUint32()) {
-            uint32_t uint32 = jarray->Get(n)->ToUint32()->Value();
+            uint32_t uint32 = MGX_TOUINT32(jarray->Get(n));
 
             bson_append_int(bobj, name, uint32);
          }
          else if (jarray->Get(n)->IsInt32()) {
-            int32_t int32 = jarray->Get(n)->ToInt32()->Value();
+            int32_t int32 = MGX_TOINT32(jarray->Get(n));
 
             bson_append_int(bobj, name, int32);
          }
          else if (jarray->Get(n)->IsNumber()) {
-            double num = jarray->Get(n)->ToNumber()->Value();
+            double num = MGX_TONUMBER(jarray->Get(n));
 
             bson_append_double(bobj, name, num);
          }
@@ -1644,7 +1654,7 @@ mongox_make_baton_exit:
 
             key_str = MGX_STRING_NEW(key);
 
-            jobj->Set(key_str, MGX_BOOLEAN_NEW((bool) num));
+            jobj->Set(key_str, MGX_BOOLEAN_NEW(num ? true : false));
          }
          else if (type == BSON_NULL) {
 /*
@@ -1747,7 +1757,7 @@ mongox_make_baton_exit:
          else if (type == BSON_BOOL) {
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 
-            jarray->Set(an, MGX_BOOLEAN_NEW((bool) num));
+            jarray->Set(an, MGX_BOOLEAN_NEW(num ? true : false));
          }
          else if (type == BSON_NULL) {
 /*
