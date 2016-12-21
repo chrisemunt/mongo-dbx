@@ -19,8 +19,20 @@
   #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+/*
+  MSVC++ 14.0 _MSC_VER == 1900 (Visual Studio 2015)
+  MSVC++ 12.0 _MSC_VER == 1800 (Visual Studio 2013)
+  MSVC++ 11.0 _MSC_VER == 1700 (Visual Studio 2012)
+  MSVC++ 10.0 _MSC_VER == 1600 (Visual Studio 2010)
+  MSVC++ 9.0  _MSC_VER == 1500 (Visual Studio 2008)
+  MSVC++ 8.0  _MSC_VER == 1400 (Visual Studio 2005)
+  MSVC++ 7.1  _MSC_VER == 1310 (Visual Studio 2003)
+*/
+
 #if _MSC_VER
-  #define snprintf _snprintf
+ #if _MSC_VER < 1900
+#define snprintf _snprintf
+#endif
 #endif
 
 #include "mongo.h"
