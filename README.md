@@ -1,4 +1,4 @@
-# mongox
+# mongo-dbx
 
 Synchronous and Asynchronous access to the Mongo Database.
 
@@ -7,7 +7,7 @@ Chris Munt <cmunt@mgateway.com>
 
 ## Pre-requisites 
 
-**mongox** is a Node.js addon written in C++.  It is distributed as C++ source code and the NPM installation procedure will expect a C++ compiler to be present on the target system.
+**mongo-dbx** is a Node.js addon written in C++.  It is distributed as C++ source code and the NPM installation procedure will expect a C++ compiler to be present on the target system.
 
 Linux systems can use the freely available GNU C++ compiler (g++) which can be installed as follows.
 
@@ -32,23 +32,23 @@ If the Windows machine is not set up for systems development, building native Ad
 
 Alternatively there are built Windows x64 binaries available from:
 
-* [https://github.com/chrisemunt/mongox/blob/master/bin/winx64](https://github.com/chrisemunt/mongox/blob/master/bin/winx64)
+* [https://github.com/chrisemunt/mongo-dbx/blob/master/bin/winx64](https://github.com/chrisemunt/mongo-dbx/blob/master/bin/winx64)
 
-## Installing mongox
+## Installing mongo-dbx
 
 Assuming that Node.js is already installed and a C++ compiler is available to the installation process:
 
-       npm install mongox
+       npm install mongo-dbx
 
-This command will create the **mongox** addon (*mongox.node*).
+This command will create the **mongo-dbx** addon (*mongo-dbx.node*).
 
 ## Documentation
 
-Most **mongox** methods are capable of operating either synchronously or asynchronously. For an operation to complete asynchronously, simply supply a suitable callback as the last argument in the call.
+Most **mongo-dbx** methods are capable of operating either synchronously or asynchronously. For an operation to complete asynchronously, simply supply a suitable callback as the last argument in the call.
 
-The first step is to add **mongox** to your Node.js script
+The first step is to add **mongo-dbx** to your Node.js script
 
-       var mongodb = require('mongox');
+       var mongodb = require('mongo-dbx');
 
 #### Create a Server Object
 

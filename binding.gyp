@@ -1,7 +1,7 @@
 {
   "targets": [
     {
-      "target_name": "mongox",
+      "target_name": "mongo-dbx",
       "defines": [
                     "MONGO_STATIC_BUILD",
                     "MONGO_HAVE_STDINT"
