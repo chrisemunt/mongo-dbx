@@ -6,7 +6,7 @@
   },
   "name": "mongo-dbx",
   "description": "Synchronous and Asynchronous access to the Mongo Database.",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "maintainers": "Chris Munt <cmunt@mgateway.com>",
   "homepage": "https://github.com/chrisemunt/mongo-dbx",
   "repository": {
