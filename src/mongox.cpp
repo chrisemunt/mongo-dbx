@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2013-2017 M/Gateway Developments Ltd,                      |
+   | Copyright (c) 2013-2019 M/Gateway Developments Ltd,                      |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -60,6 +60,11 @@ Version 1.1.8 20 April 2015:
 Version 1.2.9 20 December 2016:
    Rename as 'mongox' and publish through NPM
 
+Version 1.2.10 21 December 2016:
+   Rename as 'mongo-dbx' and publish through NPM
+
+Version 1.3.11 16 August 2019:
+   Support for Node.js v8, v10 and v12.
 */
 
 
@@ -105,23 +110,14 @@ Version 1.2.9 20 December 2016:
 #include <node_version.h>
 
 #define MGX_VERSION_MAJOR        1
-#define MGX_VERSION_MINOR        2
-#define MGX_VERSION_BUILD        10
+#define MGX_VERSION_MINOR        3
+#define MGX_VERSION_BUILD        11
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
 
-#if MGX_NODE_VERSION >= 1200
 #include <uv.h>
 #include <node_object_wrap.h>
-#endif
-
-#if defined(_WIN32)
-#if MGX_NODE_VERSION < 1000
-#include <ev.h>
-#include <eio.h>
-#endif
-#endif
 
 #if !defined(_WIN32)
 #include <pthread.h>
@@ -132,23 +128,26 @@ Version 1.2.9 20 December 2016:
 
 #define MGX_ERROR_SIZE              512
 
-#if MGX_NODE_VERSION >= 1200
 
-#if MGX_NODE_VERSION >= 70000
+#if MGX_NODE_VERSION >= 120000
+#define MGX_TONUMBER(a)             a->NumberValue(icontext).ToChecked()
+#define MGX_TOINT32(a)              a->Int32Value(icontext).FromJust()
+#define MGX_TOUINT32(a)             a->Uint32Value(icontext).FromJust()
+#define MGX_TOOBJECT(a)             a->ToObject(isolate)
+#define MGX_TOSTRING(a)             a->ToString(isolate)
+#elif MGX_NODE_VERSION >= 70000
 #define MGX_TOINT32(a)              a->Int32Value()
 #define MGX_TOUINT32(a)             a->Uint32Value()
 #define MGX_TONUMBER(a)             a->NumberValue()
+#define MGX_TOOBJECT(a)             a->ToObject()
+#define MGX_TOSTRING(a)             a->ToString()
 #else
 #define MGX_TOINT32(a)              a->ToInt32()->Value()
 #define MGX_TOUINT32(a)             a->ToUint32()->Value()
 #define MGX_TONUMBER(a)             a->ToNumber()->Value()
+#define MGX_TOOBJECT(a)             a->ToObject()
+#define MGX_TOSTRING(a)             a->ToString()
 #endif
-
-#define MGX_STRING_NEW(a)           String::NewFromUtf8(isolate, a)
-#define MGX_STRING_NEWN(a, b)       String::NewFromUtf8(isolate, a, String::kNormalString, b)
-
-#define MGX_STRING_NEW16(a)         String::NewFromTwoByte(isolate, a)
-#define MGX_STRING_NEW16N(a, b)     String::NewFromTwoByte(isolate, a, String::kNormalString, b)
 
 #define MGX_INTEGER_NEW(a)          Integer::New(isolate, a)
 #define MGX_OBJECT_NEW()            Object::New(isolate)
@@ -156,17 +155,18 @@ Version 1.2.9 20 December 2016:
 #define MGX_NUMBER_NEW(a)           Number::New(isolate, a)
 #define MGX_BOOLEAN_NEW(a)          Boolean::New(isolate, a)
 #define MGX_NULL()                  Null(isolate)
+
+#if MGX_NODE_VERSION >= 120000
+#define MGX_DATE(a)                 Date::New(icontext, a).ToLocalChecked()
+#else
 #define MGX_DATE(a)                 Date::New(isolate, a)
+#endif
 
 #define MGX_NODE_SET_PROTOTYPE_METHOD(a, b)    NODE_SET_PROTOTYPE_METHOD(t, a, b);
 #define MGX_NODE_SET_PROTOTYPE_METHODC(a, b)   NODE_SET_PROTOTYPE_METHOD(t, a, b);
 
-#define MGX_GET_SCOPE \
-   Isolate* isolate = args.GetIsolate(); \
-   HandleScope scope(isolate); \
-
 #define MGX_THROW_EXCEPTION(a) \
-   isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate, a))); \
+   isolate->ThrowException(Exception::Error(mongox_new_string8(isolate, a, 1))); \
    return; \
 
 #define MGX_THROW_EXCEPTIONV(a) \
@@ -175,17 +175,17 @@ Version 1.2.9 20 December 2016:
 
 #define MGX_MONGOAPI_START() \
    if (!s->open) { \
-         isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate, "Connection not established to Mongo Database"))); \
+         isolate->ThrowException(Exception::Error(mongox_new_string8(isolate, (char *) "Connection not established to Mongo Database", 1))); \
          return; \
    } \
 
 #define MGX_MONGOAPI_ERROR() \
    if (!baton) { \
-      isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate,"Unable to process arguments"))); \
+      isolate->ThrowException(Exception::Error(mongox_new_string8(isolate, (char *) "Unable to process arguments", 1))); \
       return; \
    } \
    if (baton->p_mgxapi->error[0]) { \
-      isolate->ThrowException(Exception::Error(String::NewFromUtf8(isolate,baton->p_mgxapi->error))); \
+      isolate->ThrowException(Exception::Error(mongox_new_string8(isolate, (char *) baton->p_mgxapi->error, 1))); \
       return; \
    } \
 
@@ -198,58 +198,6 @@ Version 1.2.9 20 December 2016:
 
 #define MGX_RETURN_UNDEFINED \
    return; \
-
-#else
-
-#define MGX_STRING_NEW(a)           String::New(a)
-#define MGX_STRING_NEWN(a, b)       String::New(a, b)
-
-#define MGX_STRING_NEW16(a)         String::New(a)
-#define MGX_STRING_NEW16N(a, b)     String::New(a, b)
-
-#define MGX_INTEGER_NEW(a)          Integer::New(a)
-#define MGX_OBJECT_NEW()            Object::New()
-#define MGX_ARRAY_NEW(a)            Array::New(a)
-#define MGX_NUMBER_NEW(a)           Number::New(a)
-#define MGX_BOOLEAN_NEW(a)          Boolean::New(a)
-#define MGX_NULL()                  Null()
-#define MGX_DATE(a)                 Date::New(a)
-
-#define MGX_NODE_SET_PROTOTYPE_METHOD(a, b)    NODE_SET_PROTOTYPE_METHOD(s_ct, a, b);
-#define MGX_NODE_SET_PROTOTYPE_METHODC(a, b)   NODE_SET_PROTOTYPE_METHOD(s_ctc, a, b);
-
-#define MGX_GET_SCOPE \
-   HandleScope scope;
-
-#define MGX_THROW_EXCEPTION(a) \
-   return ThrowException(Exception::Error(String::New(a))); \
-
-#define MGX_THROW_EXCEPTIONV(a) \
-   return ThrowException(Exception::Error(a)); \
-
-#define MGX_MONGOAPI_START() \
-   if (!s->open) { \
-      return ThrowException(Exception::Error(String::New("Connection not established to Mongo Database"))); \
-   } \
-
-#define MGX_MONGOAPI_ERROR() \
-   if (!baton) { \
-      return ThrowException(Exception::Error(String::New("Unable to process arguments"))); \
-   } \
-   if (baton->p_mgxapi->error[0]) { \
-      return ThrowException(Exception::Error(String::New(baton->p_mgxapi->error))); \
-   } \
-
-#define MGX_SET_CALLBACK(a) \
-   baton->a = Persistent<Function>::New(a); \
-
-#define MGX_RETURN_VALUE(a) \
-      return scope.Close(a); \
-
-#define MGX_RETURN_UNDEFINED \
-   return Undefined(); \
-
-#endif
 
 
 #define MGX_CALLBACK_FUN(JSNARG, CB, ASYNC) \
@@ -265,8 +213,6 @@ Version 1.2.9 20 December 2016:
 
 #define MGX_MONGOAPI_END()
 
-#if MGX_NODE_VERSION >= 1000
-
 typedef void      async_rtn;
 
 /* int status = 0; */
@@ -276,40 +222,10 @@ typedef void      async_rtn;
    uv_queue_work(uv_default_loop(), _req, async, after);
 
 #define MGX_RETURN_ASYNC         return;
+
 #define MGX_RETURN_ASYNC_AFTER \
    delete req; \
    MGX_RETURN_ASYNC;
-
-#elif MGX_NODE_VERSION >= 500
-
-typedef void      async_rtn;
-
-#define MGX_BEGIN_ASYNC(async, after, _data) \
-   uv_work_t *_req = new uv_work_t; \
-   _req->data = _data; \
-   uv_queue_work(uv_default_loop(), _req, async, after);
-
-#define MGX_RETURN_ASYNC         return;
-#define MGX_RETURN_ASYNC_AFTER \
-   delete req; \
-   MGX_RETURN_ASYNC;
-
-#else
-
-typedef int       async_rtn;
-typedef eio_req   uv_work_t;
-
-#define MGX_BEGIN_ASYNC(async, after, data) \
-   ev_ref(EV_DEFAULT_UC); \
-   eio_custom(async, EIO_PRI_DEFAULT, after, data);
-
-
-#define MGX_RETURN_ASYNC         return 0;
-#define MGX_RETURN_ASYNC_AFTER \
-   ev_unref(EV_DEFAULT_UC); \
-   MGX_RETURN_ASYNC;
-
-#endif /* #if MGX_NODE_VERSION >= 500 */
 
 #define MGX_DEFAULT_OID_NAME           "_id"
 
@@ -424,11 +340,8 @@ int                     mgx_dso_unload                (MGXPLIB p_library);
 using namespace node;
 using namespace v8;
 
-#if MGX_NODE_VERSION >= 1200
+
 class server : public node::ObjectWrap
-#else
-class server: ObjectWrap
-#endif
 {
 
 private:
@@ -749,32 +662,19 @@ struct mongo_baton_t {
 
 public:
 
-#if MGX_NODE_VERSION >= 1200
    static Persistent<Function> s_ct;
+
+#if MGX_NODE_VERSION >= 100000
+   static void Init(Local<Object> target)
 #else
-   static Persistent<FunctionTemplate> s_ct;
-#endif
-
    static void Init(Handle<Object> target)
+#endif
    {
-#if MGX_NODE_VERSION >= 1200
-
       Isolate* isolate = Isolate::GetCurrent();
 
       Local<FunctionTemplate> t = FunctionTemplate::New(isolate, New);
       t->InstanceTemplate()->SetInternalFieldCount(1);
-      t->SetClassName(String::NewFromUtf8(isolate, "server"));
-
-#else
-      HandleScope scope;
-
-      Local<FunctionTemplate> t = FunctionTemplate::New(New);
-
-      s_ct = Persistent<FunctionTemplate>::New(t);
-      s_ct->InstanceTemplate()->SetInternalFieldCount(1);
-      s_ct->SetClassName(String::NewSymbol("server"));
-
-#endif
+      t->SetClassName(mongox_new_string8(isolate, (char *) "server",1));
 
       MGX_NODE_SET_PROTOTYPE_METHOD("about", About);
       MGX_NODE_SET_PROTOTYPE_METHOD("version", Version);
@@ -791,15 +691,16 @@ public:
       MGX_NODE_SET_PROTOTYPE_METHOD("object_id", Object_ID);
       MGX_NODE_SET_PROTOTYPE_METHOD("object_id_date", Object_ID_Date);
 
-#if MGX_NODE_VERSION >= 1200
-
-      s_ct.Reset(isolate, t->GetFunction());
-
-      target->Set(String::NewFromUtf8(isolate, "server"), t->GetFunction());
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+      s_ct.Reset(isolate, t->GetFunction(icontext).ToLocalChecked());
+      target->Set(icontext, mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction(icontext).ToLocalChecked()).FromJust();
 #else
-      target->Set(String::NewSymbol("server"), s_ct->GetFunction());
+      s_ct.Reset(isolate, t->GetFunction());
+      target->Set(mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction());
 #endif
 
+      return;
    }
 
 
@@ -813,13 +714,14 @@ public:
    {
    }
 
-#if MGX_NODE_VERSION >= 1200
+
    static void New(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> New(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+#endif
+      HandleScope scope(isolate);
       server *s = new server();
       s->Wrap(args.This());
 
@@ -828,22 +730,18 @@ public:
       s->mongo_port = 0;
       strcpy(s->mongo_address, "");
 
-#if MGX_NODE_VERSION >= 1200
       args.GetReturnValue().Set(args.This());
       return;
-#else
-      return args.This();
-#endif
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static mongo_baton_t * mongox_make_baton(server *s, int js_narg, const FunctionCallbackInfo<Value>& args, int context)
-#else
-   static mongo_baton_t * mongox_make_baton(server *s, int js_narg, const Arguments& args, int context)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+#endif
+      HandleScope scope(isolate);
       int ret, obj_argn, n;
       char oid_name[64];
       char buffer[256];
@@ -913,31 +811,31 @@ public:
       }
       else if (context == MGX_METHOD_OPEN) {
          baton->jobj_main = Local<Object>::Cast(args[0]);
-         key = MGX_STRING_NEW("address");
+         key = mongox_new_string8(isolate, (char *) "address", 1);
          if (baton->jobj_main->Get(key)->IsUndefined()) {
             strcpy(baton->p_mgxapi->error, "No IP address specified for Mongo Server");
             goto mongox_make_baton_exit;
          }
          else {
-            value =  baton->jobj_main->Get(key)->ToString();
-            value->WriteUtf8(s->mongo_address);
+            value = MGX_TOSTRING(baton->jobj_main->Get(key));
+            mongox_write_char8(isolate, value, s->mongo_address, 1);
          }
 
-         key = MGX_STRING_NEW("port");
+         key = mongox_new_string8(isolate, (char *) "port", 1);
          if (baton->jobj_main->Get(key)->IsUndefined()) {
             strcpy(baton->p_mgxapi->error, "No TCP Port specified for Mongo Server");
             goto mongox_make_baton_exit;
          }
          else {
-            value = baton->jobj_main->Get(key)->ToString();
-            value->WriteUtf8(buffer);
+            value = MGX_TOSTRING(baton->jobj_main->Get(key));
+            mongox_write_char8(isolate, value, buffer, 1);
             s->mongo_port = (int) strtol(buffer, NULL, 10);
          }
       }
       else if (context == MGX_METHOD_INSERT) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Insert Method");
@@ -945,8 +843,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -972,7 +870,7 @@ public:
       else if (context == MGX_METHOD_INSERT_BATCH) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Insert Batch Method");
@@ -980,8 +878,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1003,7 +901,7 @@ public:
                   sprintf(baton->p_mgxapi->error, "Mongo Object Array supplied for Insert Batch Method has a bad record at postion %d", n);
                   break;
                }
-               baton->jobj_main = Local<Object>::Cast(jobj_array->Get(n)->ToObject());
+               baton->jobj_main = Local<Object>::Cast(MGX_TOOBJECT(jobj_array->Get(n)));
                strcpy(baton->p_mgxapi->jobj_main_list[n].oid_name, oid_name);
                baton->p_mgxapi->level = 0;
                bobj = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
@@ -1023,7 +921,7 @@ public:
       else if (context == MGX_METHOD_UPDATE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Update Method");
@@ -1031,8 +929,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1070,7 +968,7 @@ public:
       else if (context == MGX_METHOD_RETRIEVE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Retrieve Method");
@@ -1078,8 +976,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1118,8 +1016,8 @@ public:
          }
          if (js_narg > (obj_argn + 4) && args[obj_argn + 4]->IsString()) {
             char buffer[256];
-            value = args[obj_argn + 4]->ToString();
-            value->WriteUtf8(buffer);
+            value = MGX_TOSTRING(args[obj_argn + 4]);
+            mongox_write_char8(isolate, value, buffer, 1);
             ret = mongox_parse_options(s, baton, buffer, 0);
             if (ret) {
                goto mongox_make_baton_exit;
@@ -1129,7 +1027,7 @@ public:
       else if (context == MGX_METHOD_REMOVE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Remove Method");
@@ -1137,8 +1035,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1165,7 +1063,7 @@ public:
 
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Database not specified for Command Method");
@@ -1173,8 +1071,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1202,7 +1100,7 @@ public:
 
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Database not specified for Create_Index Method");
@@ -1210,8 +1108,8 @@ public:
          }
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
-            value = args[1]->ToString();
-            value->WriteUtf8(oid_name);
+            value = MGX_TOSTRING(args[1]);
+            mongox_write_char8(isolate, value, oid_name, 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1235,13 +1133,13 @@ public:
             goto mongox_make_baton_exit;
          }
          if (js_narg > (obj_argn + 1) && args[obj_argn + 1]->IsString()) {
-            value = args[obj_argn + 1]->ToString();
-            value->WriteUtf8(baton->p_mgxapi->index_name);
+            value = MGX_TOSTRING(args[obj_argn + 1]);
+            mongox_write_char8(isolate, value, baton->p_mgxapi->index_name, 1);
          }
          if (js_narg > (obj_argn + 2) && args[obj_argn + 2]->IsString()) {
             char buffer[256];
-            value = args[obj_argn + 2]->ToString();
-            value->WriteUtf8(buffer);
+            value = MGX_TOSTRING(args[obj_argn + 2]);
+            mongox_write_char8(isolate, value, buffer, 1);
             ret = mongox_parse_options(s, baton, buffer, 0);
             if (ret) {
                goto mongox_make_baton_exit;
@@ -1251,7 +1149,7 @@ public:
       else if (context == MGX_METHOD_OBJECT_ID_DATE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            file->WriteUtf8(baton->p_mgxapi->file_name);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo ObjectID not specified");
@@ -1387,6 +1285,11 @@ mongox_make_baton_exit:
 
    static int mongox_parse_json_object(server *s, mongo_baton_t * baton, Local<Object> jobj, char *jobj_name, bson *bobj, int jobj_no, int type, int context)
    {
+      Isolate* isolate = Isolate::GetCurrent();
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+#endif
+      HandleScope scope(isolate);
       int ret;
       unsigned int n, name_len, value_len;
       char *name, *value;
@@ -1396,18 +1299,20 @@ mongox_make_baton_exit:
       Local<Object> jobj_next;
       bson *bobj_next;
 
+#if MGX_NODE_VERSION >= 120000
+      a = jobj->GetPropertyNames(isolate->GetCurrentContext()).ToLocalChecked();
+#else
       a = jobj->GetPropertyNames();
-
+#endif
       for (n = 0; n < a->Length(); n ++) {
 
-         name_str = a->Get(n)->ToString();
-         name_len = name_str->Utf8Length();
+         name_str = MGX_TOSTRING(a->Get(n));
+         name_len = mongox_string8_length(isolate, name_str, 1);
 
          name = (char *) mgx_malloc(sizeof(char) * (name_len + 2), 2001);
          *name = '\0';
 
-         /* name_str->WriteUtf8(name); */
-         name_str->WriteUtf8(name);
+         mongox_write_char8(isolate, name_str, name, 1);
 
          if (n == 0 && (baton->p_mgxapi->context == MGX_METHOD_INSERT || baton->p_mgxapi->context == MGX_METHOD_INSERT_BATCH) && baton->p_mgxapi->level == 0) {
             if (strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name)) { /* no _id */
@@ -1441,7 +1346,7 @@ mongox_make_baton_exit:
          }
          else if (jobj->Get(name_str)->IsObject()) {
 
-            jobj_next = jobj->Get(name_str)->ToObject();
+            jobj_next = MGX_TOOBJECT(jobj->Get(name_str));
 
             bobj_next = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
 
@@ -1469,15 +1374,14 @@ mongox_make_baton_exit:
          }
          else {
 
-            value_str = jobj->Get(name_str)->ToString();
+            value_str = MGX_TOSTRING(jobj->Get(name_str));
 
-            value_len = value_str->Utf8Length();
+            value_len = mongox_string8_length(isolate, value_str, 1);
 
             value = (char *) mgx_malloc(sizeof(char) * (value_len + 25), 2002);
             *value = '\0';
 
-            /* value_str->WriteUtf8(value); */
-            value_str->WriteUtf8(value);
+            mongox_write_char8(isolate, value_str, value, 1);
 
             if (!strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name)) {
 
@@ -1511,6 +1415,11 @@ mongox_make_baton_exit:
 
  static int mongox_parse_json_array(server *s, mongo_baton_t * baton, Local<Array> jarray, char *jobj_name, bson *bobj, int jobj_no, int type, int context)
    {
+      Isolate* isolate = Isolate::GetCurrent();
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+#endif
+      HandleScope scope(isolate);
       unsigned int n, value_len, an;
       char *name, *value;
       char subs[32];
@@ -1542,7 +1451,7 @@ mongox_make_baton_exit:
          }
          else if (jarray->Get(n)->IsObject()) {
 
-            jobj_next = jarray->Get(n)->ToObject();
+            jobj_next = MGX_TOOBJECT(jarray->Get(n));
 
             bobj_next = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
 
@@ -1571,15 +1480,14 @@ mongox_make_baton_exit:
          }
          else {
 
-            value_str = jarray->Get(n)->ToString();
+            value_str = MGX_TOSTRING(jarray->Get(n));
 
-            value_len = value_str->Utf8Length();
+            value_len = mongox_string8_length(isolate, value_str, 1);
 
             value = (char *) mgx_malloc(sizeof(char) * (value_len + 1), 2002);
             *value = '\0';
 
-            /* value_str->WriteUtf8(value); */
-            value_str->WriteUtf8(value);
+            mongox_write_char8(isolate, value_str, value, 1);
 
             bson_append_string(bobj, name, value);
          }
@@ -1591,10 +1499,11 @@ mongox_make_baton_exit:
 
    static int mongox_parse_bson_object(server *s, mongo_baton_t * baton, Local<Object> jobj, bson *bobj, bson_iterator *iterator, int context)
    {
-#if MGX_NODE_VERSION >= 1200
       Isolate* isolate = Isolate::GetCurrent();
-      EscapableHandleScope handle_scope(isolate);
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
 #endif
+      EscapableHandleScope handle_scope(isolate);
       int int32;
       int64_t  int64;
       char *value, *key;
@@ -1616,28 +1525,28 @@ mongox_make_baton_exit:
 
             bson_oid_to_string(bson_iterator_oid(iterator), buffer);
 
-            key_str = MGX_STRING_NEW(key);
-            value_str = MGX_STRING_NEW(buffer);
+            key_str = mongox_new_string8(isolate, key, 1);
+            value_str = mongox_new_string8(isolate, buffer, 1);
             jobj->Set(key_str, value_str);
          }
          else if (type == BSON_STRING) {
             value = (char *) bson_iterator_string(iterator);
 
-            key_str = MGX_STRING_NEW(key);
-            value_str = MGX_STRING_NEW(value);
+            key_str = mongox_new_string8(isolate, key, 1);
+            value_str = mongox_new_string8(isolate, value, 1);
             jobj->Set(key_str, value_str);
          }
          else if (type == BSON_INT) {
             int32 = (int) bson_iterator_int(iterator);
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
 
             jobj->Set(key_str, MGX_INTEGER_NEW(int32));
          }
          else if (type == BSON_LONG) {
             int64 = (int64_t) bson_iterator_long(iterator);
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
 
             jobj->Set(key_str, MGX_NUMBER_NEW((double ) int64));
 
@@ -1645,14 +1554,14 @@ mongox_make_baton_exit:
          else if (type == BSON_DOUBLE) {
             double num = (double) bson_iterator_double(iterator);
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
 
             jobj->Set(key_str, MGX_NUMBER_NEW(num));
          }
          else if (type == BSON_BOOL) {
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
 
             jobj->Set(key_str, MGX_BOOLEAN_NEW(num ? true : false));
          }
@@ -1660,23 +1569,22 @@ mongox_make_baton_exit:
 /*
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 */
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
 
             jobj->Set(key_str, MGX_NULL());
          }
          else if (type == BSON_DATE) {
-/*
+
             bson_date_t num = (bson_date_t) bson_iterator_date(iterator);
-*/
-            key_str = MGX_STRING_NEW(key);
-/*
+
+            key_str = mongox_new_string8(isolate, key, 1);
+
             jobj->Set(key_str, MGX_DATE((double) num));
-*/
          }
          else if (type == BSON_ARRAY) {
             ja = MGX_ARRAY_NEW(0);
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
             jobj->Set(key_str, ja);
 
             bson_iterator_subiterator(iterator, &iterator_a);
@@ -1687,15 +1595,15 @@ mongox_make_baton_exit:
             bson_iterator_subiterator(iterator, &iterator_o);
             jobj_next = MGX_OBJECT_NEW();
 
-            key_str = MGX_STRING_NEW(key);
+            key_str = mongox_new_string8(isolate, key, 1);
             jobj->Set(key_str, jobj_next);
 
             mongox_parse_bson_object(s, baton, jobj_next, (bson *) NULL, &iterator_o, 1);
          }
          else {
             sprintf(buffer, "BSON Type: %d", type);
-            key_str = MGX_STRING_NEW(key);
-            value_str = MGX_STRING_NEW(buffer);
+            key_str = mongox_new_string8(isolate, key, 1);
+            value_str = mongox_new_string8(isolate, buffer, 1);
             jobj->Set(key_str, value_str);
 
          }
@@ -1708,10 +1616,11 @@ mongox_make_baton_exit:
 
    static int mongox_parse_bson_array(server *s, mongo_baton_t * baton, Local<Array> jarray, char *jobj_name, bson *bobj, bson_iterator *iterator, int context)
    {
-#if MGX_NODE_VERSION >= 1200
       Isolate* isolate = Isolate::GetCurrent();
-      EscapableHandleScope handle_scope(isolate);
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
 #endif
+      EscapableHandleScope handle_scope(isolate);
       int int32;
       int64_t  int64;
       unsigned int an;
@@ -1730,13 +1639,13 @@ mongox_make_baton_exit:
 
          if (type == BSON_OID) {
             bson_oid_to_string(bson_iterator_oid(iterator), buffer);
-            value_str = MGX_STRING_NEW(buffer);
+            value_str = mongox_new_string8(isolate, buffer, 1);
             jarray->Set(an, value_str);
          }
          else if (type == BSON_STRING) {
             value = (char *) bson_iterator_string(iterator);
 
-            value_str = MGX_STRING_NEW(value);
+            value_str = mongox_new_string8(isolate, value, 1);
             jarray->Set(an, value_str);
          }
          else if (type == BSON_INT) {
@@ -1789,7 +1698,7 @@ mongox_make_baton_exit:
          }
          else {
             sprintf(buffer, "BSON Type: %d", type);
-            value_str = MGX_STRING_NEW(buffer);
+            value_str = mongox_new_string8(isolate, buffer, 1);
             jarray->Set(an, value_str);
          }
          an ++;
@@ -1824,18 +1733,88 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1000
-   static async_rtn mongox_invoke_callback(uv_work_t *req, int status)
-#else
-   static async_rtn mongox_invoke_callback(uv_work_t *req)
-#endif
+   static int mongox_string8_length(Isolate * isolate, Local<String> str, int utf8)
    {
+      if (utf8) {
+#if MGX_NODE_VERSION >= 120000
+         return str->Utf8Length(isolate);
+#else
+         return str->Utf8Length();
+#endif
+      }
+      else {
+         return str->Length();
+      }
+   }
+
+
+   static Local<String> mongox_new_string8(Isolate * isolate, char * buffer, int utf8)
+   {
+      if (utf8) {
 #if MGX_NODE_VERSION >= 1200
+         return String::NewFromUtf8(isolate, buffer);
+#else
+         return String::NewFromUtf8(buffer);
+#endif
+      }
+      else {
+#if MGX_NODE_VERSION >= 100000
+         return String::NewFromOneByte(isolate, (uint8_t *) buffer, NewStringType::kInternalized).ToLocalChecked();
+#elif MGX_NODE_VERSION >= 1200
+         return String::NewFromOneByte(isolate, (uint8_t *) buffer);
+#else
+         return String::New(buffer);
+#endif
+      }
+   }
+
+
+   static Local<String> mongox_new_string8n(Isolate * isolate, char * buffer, unsigned long len, int utf8)
+   {
+      if (utf8) {
+#if MGX_NODE_VERSION >= 1200
+         return String::NewFromUtf8(isolate, buffer, String::kNormalString, len);
+#else
+         return String::NewFromUtf8(buffer, len);
+#endif
+      }
+      else {
+#if MGX_NODE_VERSION >= 100000
+         return String::NewFromOneByte(isolate, (uint8_t *) buffer, NewStringType::kInternalized, len).ToLocalChecked();
+#elif MGX_NODE_VERSION >= 1200
+         return String::NewFromOneByte(isolate, (uint8_t *) buffer, String::kNormalString, len);
+#else
+         return String::New(buffer);
+#endif
+      }
+   }
+
+
+   static int mongox_write_char8(v8::Isolate * isolate, Local<String> str, char * buffer, int utf8)
+   {
+      if (utf8) {
+#if MGX_NODE_VERSION >= 120000
+         return str->WriteUtf8(isolate, buffer);
+#else
+         return str->WriteUtf8(buffer);
+#endif
+      }
+      else {
+#if MGX_NODE_VERSION >= 120000
+         return str->WriteOneByte(isolate, (uint8_t *) buffer);
+#elif MGX_NODE_VERSION >= 1200
+         return str->WriteOneByte((uint8_t *) buffer);
+#else
+         return str->WriteAscii((char *) buffer);
+#endif
+      }
+   }
+
+
+   static async_rtn mongox_invoke_callback(uv_work_t *req, int status)
+   {
       Isolate* isolate = Isolate::GetCurrent();
       HandleScope scope(isolate);
-#else
-      HandleScope scope;
-#endif
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
       /* ev_unref(EV_DEFAULT_UC); */
       baton->s->Unref();
@@ -1854,20 +1833,23 @@ mongox_make_baton_exit:
       else
          argv[1] = baton->json_result;
 
-#if NETX_NODE_VERSION >= 40000
+#if MGX_NODE_VERSION >= 40000
       TryCatch try_catch(isolate);
 #else
       TryCatch try_catch;
 #endif
 
-#if MGX_NODE_VERSION >= 1200
       Local<Function> cb = Local<Function>::New(isolate, baton->cb);
+
+#if MGX_NODE_VERSION >= 120000
+      /* cb->Call(isolate->GetCurrentContext(), isolate->GetCurrentContext()->Global(), 2, argv); */
+      cb->Call(isolate->GetCurrentContext(), Null(isolate), 2, argv).ToLocalChecked();
+#else
       cb->Call(isolate->GetCurrentContext()->Global(), 2, argv);
-#else
-      baton->cb->Call(Context::GetCurrent()->Global(), 2, argv);
 #endif
 
-#if NETX_NODE_VERSION >= 40000
+
+#if MGX_NODE_VERSION >= 40000
       if (try_catch.HasCaught()) {
          FatalException(isolate, try_catch);
       }
@@ -1877,11 +1859,7 @@ mongox_make_baton_exit:
       }
 #endif
 
-#if MGX_NODE_VERSION >= 1200
       baton->cb.Reset();
-#else
-      baton->cb.Dispose();
-#endif
 
 	   MGX_MONGOAPI_END();
 
@@ -1893,10 +1871,8 @@ mongox_make_baton_exit:
  
    static Local<Object> mongox_result_object(mongo_baton_t * baton, int context)
    {
-#if MGX_NODE_VERSION >= 1200
       Isolate* isolate = Isolate::GetCurrent();
       EscapableHandleScope handle_scope(isolate);
-#endif
       int ret, n;
       Local<String> key;
       Local<String> value;
@@ -1913,14 +1889,14 @@ mongox_make_baton_exit:
 
          baton->result_iserror = 1;
 
-         error = MGX_STRING_NEW(baton->p_mgxapi->error);
-         key = MGX_STRING_NEW("ErrorMessage");
+         error = mongox_new_string8(isolate, baton->p_mgxapi->error, 1);
+         key = mongox_new_string8(isolate, (char *) "ErrorMessage", 1);
          baton->json_result->Set(key, error);
 
-         key = MGX_STRING_NEW("ErrorCode");
+         key = mongox_new_string8(isolate, (char *) "ErrorCode", 1);
          baton->json_result->Set(key, MGX_INTEGER_NEW(baton->p_mgxapi->error_code));
 
-         key = MGX_STRING_NEW("ok");
+         key = mongox_new_string8(isolate, (char *) "ok", 1);
          baton->json_result->Set(key, MGX_INTEGER_NEW(false));
       }
       else {
@@ -1931,10 +1907,10 @@ mongox_make_baton_exit:
             Local<Object> jobj;
             Local<Array> a_subs = MGX_ARRAY_NEW(0);
 
-            key = MGX_STRING_NEW("ok");
+            key = mongox_new_string8(isolate, (char *) "ok", 1);
             baton->json_result->Set(key, MGX_INTEGER_NEW(true));
 
-            key = MGX_STRING_NEW("data");
+            key = mongox_new_string8(isolate, (char *) "data", 1);
             baton->json_result->Set(key, a_subs);
 
             an = 0;
@@ -1961,75 +1937,68 @@ mongox_make_baton_exit:
 
             jobj = MGX_OBJECT_NEW();
 
-            key = MGX_STRING_NEW("ok");
+            key = mongox_new_string8(isolate, (char *) "ok", 1);
             baton->json_result->Set(key, MGX_INTEGER_NEW(true));
 
-            key = MGX_STRING_NEW("data");
+            key = mongox_new_string8(isolate, (char *) "data", 1);
 
             ret = mongox_parse_bson_object(baton->s, baton, jobj, baton->p_mgxapi->bobj_main, &iterator, 0);
             baton->json_result->Set(key, jobj);
          }
          else {
-            key = MGX_STRING_NEW("ok");
+            key = mongox_new_string8(isolate, (char *) "ok", 1);
             baton->json_result->Set(key, MGX_INTEGER_NEW(true));
 
             if (baton->p_mgxapi->context == MGX_METHOD_VERSION || baton->p_mgxapi->context == MGX_METHOD_ABOUT || baton->p_mgxapi->context == MGX_METHOD_OBJECT_ID) {
-               key = MGX_STRING_NEW("result");
+               key = mongox_new_string8(isolate, (char *) "result", 1);
                if (baton->p_mgxapi->output)
-                  value = MGX_STRING_NEW(baton->p_mgxapi->output);
+                  value = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
                else
-                  value = MGX_STRING_NEW("");
+                  value = mongox_new_string8(isolate, (char *) "", 1);
                baton->json_result->Set(key, value);
             }
             else {
-               key = MGX_STRING_NEW("result");
+               key = mongox_new_string8(isolate, (char *) "result", 1);
                baton->json_result->Set(key, MGX_INTEGER_NEW(baton->p_mgxapi->output_integer));
                if (baton->p_mgxapi->context == MGX_METHOD_INSERT) {
-                  key = MGX_STRING_NEW(baton->p_mgxapi->jobj_main_list[0].oid_name);
-                  value = MGX_STRING_NEW(baton->p_mgxapi->jobj_main_list[0].oid_value);
+                  key = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[0].oid_name, 1);
+                  value = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[0].oid_value, 1);
                   baton->json_result->Set(key, value);
                }
                else if (baton->p_mgxapi->context == MGX_METHOD_INSERT_BATCH) {
                   jobj_array = MGX_ARRAY_NEW(0);
-                  key = MGX_STRING_NEW("data");
+                  key = mongox_new_string8(isolate, (char *) "data", 1);
                   baton->json_result->Set(key, jobj_array);
                   for (n = 0; n < baton->p_mgxapi->bobj_main_list_no; n ++) {
                      jobj = MGX_OBJECT_NEW();
                      jobj_array->Set(n, jobj);
-                     key = MGX_STRING_NEW(baton->p_mgxapi->jobj_main_list[n].oid_name);
-                     value = MGX_STRING_NEW(baton->p_mgxapi->jobj_main_list[n].oid_value);
+                     key = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[n].oid_name, 1);
+                     value = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[n].oid_value, 1);
                      jobj->Set(key,value);
                   }
                }
                else if (baton->p_mgxapi->context == MGX_METHOD_OBJECT_ID_DATE) {
-                  key = MGX_STRING_NEW("DateText");
-                  value = MGX_STRING_NEW(baton->p_mgxapi->output);
+                  key = mongox_new_string8(isolate, (char *) "DateText", 1);
+                  value = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
                   baton->json_result->Set(key, value);
                }
             }
          }
       }
 
-#if MGX_NODE_VERSION >= 1200
-   if (baton->result_isarray) {
-      return handle_scope.Escape(baton->array_result);
-   }
-   else {
-      return handle_scope.Escape(baton->json_result);
-   }
-#else
-      return baton->json_result;
-#endif
+      if (baton->result_isarray) {
+         return handle_scope.Escape(baton->array_result);
+      }
+      else {
+         return handle_scope.Escape(baton->json_result);
+      }
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void About(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> About(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       server * s = ObjectWrap::Unwrap<server>(args.This());
@@ -2057,7 +2026,7 @@ mongox_make_baton_exit:
 
       s->mongox_mgx_version(s, baton);
 
-      Local<String> result = MGX_STRING_NEW(baton->p_mgxapi->output);
+      Local<String> result = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
       mongox_destroy_baton(baton);
 
       MGX_RETURN_VALUE(result);
@@ -2075,13 +2044,11 @@ mongox_make_baton_exit:
       MGX_RETURN_ASYNC;
    }
 
-#if MGX_NODE_VERSION >= 1200
+
    static void Version(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Version(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       server *s = ObjectWrap::Unwrap<server>(args.This());
@@ -2109,7 +2076,7 @@ mongox_make_baton_exit:
 
       s->mongox_mgx_version(s, baton);
 
-      Local<String> result = MGX_STRING_NEW(baton->p_mgxapi->output);
+      Local<String> result = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
       mongox_destroy_baton(baton);
 
       MGX_RETURN_VALUE(result);
@@ -2128,13 +2095,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Open(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Open(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int ret, js_narg;
       Local<Object> json_result;
@@ -2186,13 +2150,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Close(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Close(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2247,13 +2208,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Retrieve(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Retrieve(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2306,13 +2264,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Insert(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Insert(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2364,13 +2319,11 @@ mongox_make_baton_exit:
       MGX_RETURN_ASYNC;
    }
 
-#if MGX_NODE_VERSION >= 1200
+
    static void Insert_Batch(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Insert_Batch(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2422,13 +2375,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Update(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Update(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2481,13 +2431,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Remove(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Remove(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2540,13 +2487,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Command(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Command(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2597,13 +2541,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Create_Index(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Create_Index(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2654,13 +2595,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Object_ID(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Object_ID(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2693,7 +2631,7 @@ mongox_make_baton_exit:
 
       MGX_MONGOAPI_END();
 
-      Local<String> result = MGX_STRING_NEW(baton->p_mgxapi->output);
+      Local<String> result = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
       mongox_destroy_baton(baton);
 
       MGX_RETURN_VALUE(result);
@@ -2719,13 +2657,10 @@ mongox_make_baton_exit:
    }
 
 
-#if MGX_NODE_VERSION >= 1200
    static void Object_ID_Date(const FunctionCallbackInfo<Value>& args)
-#else
-   static Handle<Value> Object_ID_Date(const Arguments& args)
-#endif
    {
-      MGX_GET_SCOPE;
+      Isolate* isolate = args.GetIsolate();
+      HandleScope scope(isolate);
       short async;
       int js_narg;
       Local<Object> json_result;
@@ -2781,17 +2716,23 @@ mongox_make_baton_exit:
 
 };
 
-#if MGX_NODE_VERSION >= 1200
+
 Persistent<Function> server::s_ct;
-#else
-Persistent<FunctionTemplate> server::s_ct;
-#endif
+
 
 extern "C" {
 #if defined(_WIN32)
-   void __declspec(dllexport) init (Handle<Object> target)
+#if MGX_NODE_VERSION >= 100000
+void __declspec(dllexport) init (Local<Object> target)
 #else
-   static void init (Handle<Object> target)
+void __declspec(dllexport) init (Handle<Object> target)
+#endif
+#else
+#if MGX_NODE_VERSION >= 100000
+static void init (Local<Object> target)
+#else
+static void init (Handle<Object> target)
+#endif
 #endif
    {
        server::Init(target);
