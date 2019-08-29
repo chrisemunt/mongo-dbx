@@ -1,9 +1,12 @@
 # mongo-dbx
 
-Synchronous and Asynchronous access to the Mongo Database.
+Synchronous and Asynchronous access from Node.js to the Mongo Database.
 
 Chris Munt <cmunt@mgateway.com>  
-19 December 2016, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
+22 August 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
+
+* Verified to work with Node.js v4 to v12.
+* [Release Notes](#RelNotes) can be found at the end of this document.
 
 ## Pre-requisites 
 
@@ -332,4 +335,14 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
       http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.      
+
+## <a name="RelNotes"></a>Release Notes
+
+### v1.2.10 (19 December 2016)
+
+* Initial Release
+
+### v1.3.11 (22 August 2019)
+
+* Support for Node.js v8, v10 and v12.
 
