@@ -1,9 +1,9 @@
 # mongo-dbx
 
-Synchronous and Asynchronous access from Node.js to the Mongo Database.
+Synchronous and Asynchronous access from Node.js to the Mongo Database from Node.js.
 
 Chris Munt <cmunt@mgateway.com>  
-22 August 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
+12 September 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
 
 * Verified to work with Node.js v4 to v12.
 * [Release Notes](#RelNotes) can be found at the end of this document.
@@ -346,3 +346,6 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 * Support for Node.js v8, v10 and v12.
 
+### v1.3.12 (12 September 2019)
+
+* Internal changes to replace V8/Node.js API functionality that was deprecated in Node.js v12.
