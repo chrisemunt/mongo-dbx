@@ -65,6 +65,10 @@ Version 1.2.10 21 December 2016:
 
 Version 1.3.11 16 August 2019:
    Support for Node.js v8, v10 and v12.
+
+Version 1.3.12 12 September 2019:
+   Replace functionality that was deprecated in Node.js/V8 v12.
+
 */
 
 
@@ -111,7 +115,7 @@ Version 1.3.11 16 August 2019:
 
 #define MGX_VERSION_MAJOR        1
 #define MGX_VERSION_MINOR        3
-#define MGX_VERSION_BUILD        11
+#define MGX_VERSION_BUILD        12
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -130,18 +134,24 @@ Version 1.3.11 16 August 2019:
 
 
 #if MGX_NODE_VERSION >= 120000
+#define MGX_GET(a,b)                a->Get(icontext,b).ToLocalChecked()
+#define MGX_SET(a,b,c)              a->Set(icontext,b,c).FromJust()
 #define MGX_TONUMBER(a)             a->NumberValue(icontext).ToChecked()
 #define MGX_TOINT32(a)              a->Int32Value(icontext).FromJust()
 #define MGX_TOUINT32(a)             a->Uint32Value(icontext).FromJust()
-#define MGX_TOOBJECT(a)             a->ToObject(isolate)
-#define MGX_TOSTRING(a)             a->ToString(isolate)
+#define MGX_TOOBJECT(a)             a->ToObject(icontext).ToLocalChecked()
+#define MGX_TOSTRING(a)             a->ToString(icontext).ToLocalChecked()
 #elif MGX_NODE_VERSION >= 70000
+#define MGX_GET(a,b)                a->Get(b)
+#define MGX_SET(a,b,c)              a->Set(b,c)
 #define MGX_TOINT32(a)              a->Int32Value()
 #define MGX_TOUINT32(a)             a->Uint32Value()
 #define MGX_TONUMBER(a)             a->NumberValue()
 #define MGX_TOOBJECT(a)             a->ToObject()
 #define MGX_TOSTRING(a)             a->ToString()
 #else
+#define MGX_GET(a,b)                a->Get(b)
+#define MGX_SET(a,b,c)              a->Set(b,c)
 #define MGX_TOINT32(a)              a->ToInt32()->Value()
 #define MGX_TOUINT32(a)             a->ToUint32()->Value()
 #define MGX_TONUMBER(a)             a->ToNumber()->Value()
@@ -718,9 +728,6 @@ public:
    static void New(const FunctionCallbackInfo<Value>& args)
    {
       Isolate* isolate = args.GetIsolate();
-#if MGX_NODE_VERSION >= 120000
-      Local<Context> icontext = isolate->GetCurrentContext();
-#endif
       HandleScope scope(isolate);
       server *s = new server();
       s->Wrap(args.This());
@@ -812,22 +819,22 @@ public:
       else if (context == MGX_METHOD_OPEN) {
          baton->jobj_main = Local<Object>::Cast(args[0]);
          key = mongox_new_string8(isolate, (char *) "address", 1);
-         if (baton->jobj_main->Get(key)->IsUndefined()) {
+         if (MGX_GET(baton->jobj_main, key)->IsUndefined()) {
             strcpy(baton->p_mgxapi->error, "No IP address specified for Mongo Server");
             goto mongox_make_baton_exit;
          }
          else {
-            value = MGX_TOSTRING(baton->jobj_main->Get(key));
+            value = MGX_TOSTRING(MGX_GET(baton->jobj_main, key));
             mongox_write_char8(isolate, value, s->mongo_address, 1);
          }
 
          key = mongox_new_string8(isolate, (char *) "port", 1);
-         if (baton->jobj_main->Get(key)->IsUndefined()) {
+         if (MGX_GET(baton->jobj_main, key)->IsUndefined()) {
             strcpy(baton->p_mgxapi->error, "No TCP Port specified for Mongo Server");
             goto mongox_make_baton_exit;
          }
          else {
-            value = MGX_TOSTRING(baton->jobj_main->Get(key));
+            value = MGX_TOSTRING(MGX_GET(baton->jobj_main, key));
             mongox_write_char8(isolate, value, buffer, 1);
             s->mongo_port = (int) strtol(buffer, NULL, 10);
          }
@@ -897,11 +904,11 @@ public:
             baton->p_mgxapi->jobj_main_list = (MGXJSON *) mgx_malloc((sizeof(MGXJSON) * baton->p_mgxapi->bobj_main_list_no), 10);
 
             for (n = 0; n < baton->p_mgxapi->bobj_main_list_no; n ++) {
-               if (!jobj_array->Get(n)->IsObject()) {
+               if (!MGX_GET(jobj_array, n)->IsObject()) {
                   sprintf(baton->p_mgxapi->error, "Mongo Object Array supplied for Insert Batch Method has a bad record at postion %d", n);
                   break;
                }
-               baton->jobj_main = Local<Object>::Cast(MGX_TOOBJECT(jobj_array->Get(n)));
+               baton->jobj_main = Local<Object>::Cast(MGX_TOOBJECT(MGX_GET(jobj_array, n)));
                strcpy(baton->p_mgxapi->jobj_main_list[n].oid_name, oid_name);
                baton->p_mgxapi->level = 0;
                bobj = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
@@ -1306,7 +1313,7 @@ mongox_make_baton_exit:
 #endif
       for (n = 0; n < a->Length(); n ++) {
 
-         name_str = MGX_TOSTRING(a->Get(n));
+         name_str = MGX_TOSTRING(MGX_GET(a, n));
          name_len = mongox_string8_length(isolate, name_str, 1);
 
          name = (char *) mgx_malloc(sizeof(char) * (name_len + 2), 2001);
@@ -1321,7 +1328,7 @@ mongox_make_baton_exit:
                bson_oid_to_string(&(baton->p_mgxapi->jobj_main_list[jobj_no].oid), baton->p_mgxapi->jobj_main_list[jobj_no].oid_value);
                bson_append_oid(bobj, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name, &(baton->p_mgxapi->jobj_main_list[jobj_no].oid));
             }
-            if (!strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name) && !jobj->Get(name_str)->IsString()) { /* _id but wrong type */
+            if (!strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name) && !MGX_GET(jobj, name_str)->IsString()) { /* _id but wrong type */
                /* bson_append_new_oid(baton->p_mgxapi->bobj_main, baton->p_mgxapi->oid_name); */
                bson_oid_gen(&(baton->p_mgxapi->jobj_main_list[jobj_no].oid));
                bson_oid_to_string(&(baton->p_mgxapi->jobj_main_list[jobj_no].oid), baton->p_mgxapi->jobj_main_list[jobj_no].oid_value);
@@ -1334,9 +1341,9 @@ mongox_make_baton_exit:
             }
          }
 
-         if (jobj->Get(name_str)->IsArray()) {
+         if (MGX_GET(jobj, name_str)->IsArray()) {
             ret = bson_append_start_array(bobj, name);
-            Local<Array> a = Local<Array>::Cast(jobj->Get(name_str));
+            Local<Array> a = Local<Array>::Cast(MGX_GET(jobj, name_str));
             baton->p_mgxapi->level ++;
             mongox_parse_json_array(s, (mongo_baton_t *) baton, a, name, bobj, jobj_no, MGX_JSON_ARRAY, context);
             baton->p_mgxapi->level --;
@@ -1344,9 +1351,9 @@ mongox_make_baton_exit:
             bson_append_finish_array(bobj);
 
          }
-         else if (jobj->Get(name_str)->IsObject()) {
+         else if (MGX_GET(jobj, name_str)->IsObject()) {
 
-            jobj_next = MGX_TOOBJECT(jobj->Get(name_str));
+            jobj_next = MGX_TOOBJECT(MGX_GET(jobj, name_str));
 
             bobj_next = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
 
@@ -1358,23 +1365,23 @@ mongox_make_baton_exit:
             ret = bson_append_bson(bobj, name, bobj_next);
 
          }
-         else if (jobj->Get(name_str)->IsUint32()) {
-            uint32_t uint32 = MGX_TOUINT32(jobj->Get(name_str));
+         else if (MGX_GET(jobj, name_str)->IsUint32()) {
+            uint32_t uint32 = MGX_TOUINT32(MGX_GET(jobj, name_str));
             ret = bson_append_int(bobj, name, uint32);
          }
-         else if (jobj->Get(name_str)->IsInt32()) {
-            int32_t int32 = MGX_TOINT32(jobj->Get(name_str));
+         else if (MGX_GET(jobj, name_str)->IsInt32()) {
+            int32_t int32 = MGX_TOINT32(MGX_GET(jobj, name_str));
             ret = bson_append_int(bobj, name, int32);
          }
-         else if (jobj->Get(name_str)->IsNumber()) {
+         else if (MGX_GET(jobj, name_str)->IsNumber()) {
 
-            double num = MGX_TONUMBER(jobj->Get(name_str));
+            double num = MGX_TONUMBER(MGX_GET(jobj, name_str));
 
             ret = bson_append_double(bobj, name, num);
          }
          else {
 
-            value_str = MGX_TOSTRING(jobj->Get(name_str));
+            value_str = MGX_TOSTRING(MGX_GET(jobj, name_str));
 
             value_len = mongox_string8_length(isolate, value_str, 1);
 
@@ -1438,10 +1445,10 @@ mongox_make_baton_exit:
          name = subs;
          sprintf(name, "%d", an);
 
-         if (jarray->Get(n)->IsArray()) {
+         if (MGX_GET(jarray, n)->IsArray()) {
             bson_append_start_array(bobj, name);
 
-            Local<Array> a = Local<Array>::Cast(jarray->Get(n));
+            Local<Array> a = Local<Array>::Cast(MGX_GET(jarray, n));
             baton->p_mgxapi->level ++;
             mongox_parse_json_object(s, (mongo_baton_t *) baton, a, name, bobj, jobj_no, MGX_JSON_ARRAY, context);
             baton->p_mgxapi->level --;
@@ -1449,9 +1456,9 @@ mongox_make_baton_exit:
             bson_append_finish_array(bobj);
 
          }
-         else if (jarray->Get(n)->IsObject()) {
+         else if (MGX_GET(jarray, n)->IsObject()) {
 
-            jobj_next = MGX_TOOBJECT(jarray->Get(n));
+            jobj_next = MGX_TOOBJECT(MGX_GET(jarray, n));
 
             bobj_next = mgx_bson_alloc(baton->p_mgxapi, 1, 0);
 
@@ -1463,24 +1470,24 @@ mongox_make_baton_exit:
             bson_append_bson(bobj, name, bobj_next);
 
          }
-         else if (jarray->Get(n)->IsUint32()) {
-            uint32_t uint32 = MGX_TOUINT32(jarray->Get(n));
+         else if (MGX_GET(jarray, n)->IsUint32()) {
+            uint32_t uint32 = MGX_TOUINT32(MGX_GET(jarray, n));
 
             bson_append_int(bobj, name, uint32);
          }
-         else if (jarray->Get(n)->IsInt32()) {
-            int32_t int32 = MGX_TOINT32(jarray->Get(n));
+         else if (MGX_GET(jarray, n)->IsInt32()) {
+            int32_t int32 = MGX_TOINT32(MGX_GET(jarray, n));
 
             bson_append_int(bobj, name, int32);
          }
-         else if (jarray->Get(n)->IsNumber()) {
-            double num = MGX_TONUMBER(jarray->Get(n));
+         else if (MGX_GET(jarray, n)->IsNumber()) {
+            double num = MGX_TONUMBER(MGX_GET(jarray, n));
 
             bson_append_double(bobj, name, num);
          }
          else {
 
-            value_str = MGX_TOSTRING(jarray->Get(n));
+            value_str = MGX_TOSTRING(MGX_GET(jarray, n));
 
             value_len = mongox_string8_length(isolate, value_str, 1);
 
@@ -1527,28 +1534,28 @@ mongox_make_baton_exit:
 
             key_str = mongox_new_string8(isolate, key, 1);
             value_str = mongox_new_string8(isolate, buffer, 1);
-            jobj->Set(key_str, value_str);
+            MGX_SET(jobj, key_str, value_str);
          }
          else if (type == BSON_STRING) {
             value = (char *) bson_iterator_string(iterator);
 
             key_str = mongox_new_string8(isolate, key, 1);
             value_str = mongox_new_string8(isolate, value, 1);
-            jobj->Set(key_str, value_str);
+            MGX_SET(jobj, key_str, value_str);
          }
          else if (type == BSON_INT) {
             int32 = (int) bson_iterator_int(iterator);
 
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_INTEGER_NEW(int32));
+            MGX_SET(jobj, key_str, MGX_INTEGER_NEW(int32));
          }
          else if (type == BSON_LONG) {
             int64 = (int64_t) bson_iterator_long(iterator);
 
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_NUMBER_NEW((double ) int64));
+            MGX_SET(jobj, key_str, MGX_NUMBER_NEW((double ) int64));
 
          }
          else if (type == BSON_DOUBLE) {
@@ -1556,14 +1563,14 @@ mongox_make_baton_exit:
 
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_NUMBER_NEW(num));
+            MGX_SET(jobj, key_str, MGX_NUMBER_NEW(num));
          }
          else if (type == BSON_BOOL) {
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_BOOLEAN_NEW(num ? true : false));
+            MGX_SET(jobj, key_str, MGX_BOOLEAN_NEW(num ? true : false));
          }
          else if (type == BSON_NULL) {
 /*
@@ -1571,7 +1578,7 @@ mongox_make_baton_exit:
 */
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_NULL());
+            MGX_SET(jobj, key_str, MGX_NULL());
          }
          else if (type == BSON_DATE) {
 
@@ -1579,13 +1586,13 @@ mongox_make_baton_exit:
 
             key_str = mongox_new_string8(isolate, key, 1);
 
-            jobj->Set(key_str, MGX_DATE((double) num));
+            MGX_SET(jobj, key_str, MGX_DATE((double) num));
          }
          else if (type == BSON_ARRAY) {
             ja = MGX_ARRAY_NEW(0);
 
             key_str = mongox_new_string8(isolate, key, 1);
-            jobj->Set(key_str, ja);
+            MGX_SET(jobj, key_str, ja);
 
             bson_iterator_subiterator(iterator, &iterator_a);
 
@@ -1596,7 +1603,7 @@ mongox_make_baton_exit:
             jobj_next = MGX_OBJECT_NEW();
 
             key_str = mongox_new_string8(isolate, key, 1);
-            jobj->Set(key_str, jobj_next);
+            MGX_SET(jobj, key_str, jobj_next);
 
             mongox_parse_bson_object(s, baton, jobj_next, (bson *) NULL, &iterator_o, 1);
          }
@@ -1604,7 +1611,7 @@ mongox_make_baton_exit:
             sprintf(buffer, "BSON Type: %d", type);
             key_str = mongox_new_string8(isolate, key, 1);
             value_str = mongox_new_string8(isolate, buffer, 1);
-            jobj->Set(key_str, value_str);
+            MGX_SET(jobj, key_str, value_str);
 
          }
       }
@@ -1640,48 +1647,48 @@ mongox_make_baton_exit:
          if (type == BSON_OID) {
             bson_oid_to_string(bson_iterator_oid(iterator), buffer);
             value_str = mongox_new_string8(isolate, buffer, 1);
-            jarray->Set(an, value_str);
+            MGX_SET(jarray, an, value_str);
          }
          else if (type == BSON_STRING) {
             value = (char *) bson_iterator_string(iterator);
 
             value_str = mongox_new_string8(isolate, value, 1);
-            jarray->Set(an, value_str);
+            MGX_SET(jarray, an, value_str);
          }
          else if (type == BSON_INT) {
             int32 = (int) bson_iterator_int(iterator);
 
-            jarray->Set(an, MGX_INTEGER_NEW(int32));
+            MGX_SET(jarray, an, MGX_INTEGER_NEW(int32));
          }
          else if (type == BSON_LONG) {
             int64 = (int64_t) bson_iterator_long(iterator);
 
-            jarray->Set(an, MGX_NUMBER_NEW((double) int64));
+            MGX_SET(jarray, an, MGX_NUMBER_NEW((double) int64));
          }
          else if (type == BSON_DOUBLE) {
             double num = (double) bson_iterator_double(iterator);
 
-            jarray->Set(an, MGX_NUMBER_NEW(num));
+            MGX_SET(jarray, an, MGX_NUMBER_NEW(num));
          }
          else if (type == BSON_BOOL) {
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 
-            jarray->Set(an, MGX_BOOLEAN_NEW(num ? true : false));
+            MGX_SET(jarray, an, MGX_BOOLEAN_NEW(num ? true : false));
          }
          else if (type == BSON_NULL) {
 /*
             bson_bool_t num = (bson_bool_t) bson_iterator_bool(iterator);
 */
-            jarray->Set(an, MGX_NULL());
+            MGX_SET(jarray, an, MGX_NULL());
          }
          else if (type == BSON_DATE) {
             bson_date_t num = (bson_date_t) bson_iterator_date(iterator);
 
-            jarray->Set(an, MGX_DATE((double) num));
+            MGX_SET(jarray, an, MGX_DATE((double) num));
          }
          else if (type == BSON_ARRAY) {
             ja = MGX_ARRAY_NEW(0);
-            jarray->Set(an, ja);
+            MGX_SET(jarray, an, ja);
 
             bson_iterator_subiterator(iterator, &iterator_a);
 
@@ -1692,14 +1699,14 @@ mongox_make_baton_exit:
             bson_iterator_subiterator(iterator, &iterator_o);
             jobj_next = MGX_OBJECT_NEW();
 
-            jarray->Set(an, jobj_next);
+            MGX_SET(jarray, an, jobj_next);
 
             mongox_parse_bson_object(s, baton, jobj_next, (bson *) NULL, &iterator_o, 1);
          }
          else {
             sprintf(buffer, "BSON Type: %d", type);
             value_str = mongox_new_string8(isolate, buffer, 1);
-            jarray->Set(an, value_str);
+            MGX_SET(jarray, an, value_str);
          }
          an ++;
       }
@@ -1751,7 +1758,9 @@ mongox_make_baton_exit:
    static Local<String> mongox_new_string8(Isolate * isolate, char * buffer, int utf8)
    {
       if (utf8) {
-#if MGX_NODE_VERSION >= 1200
+#if MGX_NODE_VERSION >= 120000
+         return String::NewFromUtf8(isolate, buffer, NewStringType::kNormal).ToLocalChecked();
+#elif MGX_NODE_VERSION >= 1200
          return String::NewFromUtf8(isolate, buffer);
 #else
          return String::NewFromUtf8(buffer);
@@ -1772,7 +1781,9 @@ mongox_make_baton_exit:
    static Local<String> mongox_new_string8n(Isolate * isolate, char * buffer, unsigned long len, int utf8)
    {
       if (utf8) {
-#if MGX_NODE_VERSION >= 1200
+#if MGX_NODE_VERSION >= 120000
+         return String::NewFromUtf8(isolate, buffer, NewStringType::kNormal, len).ToLocalChecked();
+#elif MGX_NODE_VERSION >= 1200
          return String::NewFromUtf8(isolate, buffer, String::kNormalString, len);
 #else
          return String::NewFromUtf8(buffer, len);
@@ -1872,6 +1883,9 @@ mongox_make_baton_exit:
    static Local<Object> mongox_result_object(mongo_baton_t * baton, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
+#if MGX_NODE_VERSION >= 120000
+      Local<Context> icontext = isolate->GetCurrentContext();
+#endif
       EscapableHandleScope handle_scope(isolate);
       int ret, n;
       Local<String> key;
@@ -1891,13 +1905,13 @@ mongox_make_baton_exit:
 
          error = mongox_new_string8(isolate, baton->p_mgxapi->error, 1);
          key = mongox_new_string8(isolate, (char *) "ErrorMessage", 1);
-         baton->json_result->Set(key, error);
+         MGX_SET(baton->json_result, key, error);
 
          key = mongox_new_string8(isolate, (char *) "ErrorCode", 1);
-         baton->json_result->Set(key, MGX_INTEGER_NEW(baton->p_mgxapi->error_code));
+         MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(baton->p_mgxapi->error_code));
 
          key = mongox_new_string8(isolate, (char *) "ok", 1);
-         baton->json_result->Set(key, MGX_INTEGER_NEW(false));
+         MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(false));
       }
       else {
          if (baton->p_mgxapi->context == MGX_METHOD_RETRIEVE) {
@@ -1908,10 +1922,10 @@ mongox_make_baton_exit:
             Local<Array> a_subs = MGX_ARRAY_NEW(0);
 
             key = mongox_new_string8(isolate, (char *) "ok", 1);
-            baton->json_result->Set(key, MGX_INTEGER_NEW(true));
+            MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(true));
 
             key = mongox_new_string8(isolate, (char *) "data", 1);
-            baton->json_result->Set(key, a_subs);
+            MGX_SET(baton->json_result, key, a_subs);
 
             an = 0;
 
@@ -1924,7 +1938,7 @@ mongox_make_baton_exit:
 
                ret = mongox_parse_bson_object(baton->s, baton, jobj, bobj, &iterator, 0);
 
-               a_subs->Set(an, jobj);
+               MGX_SET(a_subs, an, jobj);
 
                an ++;
 
@@ -1938,16 +1952,16 @@ mongox_make_baton_exit:
             jobj = MGX_OBJECT_NEW();
 
             key = mongox_new_string8(isolate, (char *) "ok", 1);
-            baton->json_result->Set(key, MGX_INTEGER_NEW(true));
+            MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(true));
 
             key = mongox_new_string8(isolate, (char *) "data", 1);
 
             ret = mongox_parse_bson_object(baton->s, baton, jobj, baton->p_mgxapi->bobj_main, &iterator, 0);
-            baton->json_result->Set(key, jobj);
+            MGX_SET(baton->json_result, key, jobj);
          }
          else {
             key = mongox_new_string8(isolate, (char *) "ok", 1);
-            baton->json_result->Set(key, MGX_INTEGER_NEW(true));
+            MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(true));
 
             if (baton->p_mgxapi->context == MGX_METHOD_VERSION || baton->p_mgxapi->context == MGX_METHOD_ABOUT || baton->p_mgxapi->context == MGX_METHOD_OBJECT_ID) {
                key = mongox_new_string8(isolate, (char *) "result", 1);
@@ -1955,32 +1969,32 @@ mongox_make_baton_exit:
                   value = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
                else
                   value = mongox_new_string8(isolate, (char *) "", 1);
-               baton->json_result->Set(key, value);
+               MGX_SET(baton->json_result, key, value);
             }
             else {
                key = mongox_new_string8(isolate, (char *) "result", 1);
-               baton->json_result->Set(key, MGX_INTEGER_NEW(baton->p_mgxapi->output_integer));
+               MGX_SET(baton->json_result, key, MGX_INTEGER_NEW(baton->p_mgxapi->output_integer));
                if (baton->p_mgxapi->context == MGX_METHOD_INSERT) {
                   key = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[0].oid_name, 1);
                   value = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[0].oid_value, 1);
-                  baton->json_result->Set(key, value);
+                  MGX_SET(baton->json_result, key, value);
                }
                else if (baton->p_mgxapi->context == MGX_METHOD_INSERT_BATCH) {
                   jobj_array = MGX_ARRAY_NEW(0);
                   key = mongox_new_string8(isolate, (char *) "data", 1);
-                  baton->json_result->Set(key, jobj_array);
+                  MGX_SET(baton->json_result, key, jobj_array);
                   for (n = 0; n < baton->p_mgxapi->bobj_main_list_no; n ++) {
                      jobj = MGX_OBJECT_NEW();
-                     jobj_array->Set(n, jobj);
+                     MGX_SET(jobj_array, n, jobj);
                      key = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[n].oid_name, 1);
                      value = mongox_new_string8(isolate, baton->p_mgxapi->jobj_main_list[n].oid_value, 1);
-                     jobj->Set(key,value);
+                     MGX_SET(jobj, key, value);
                   }
                }
                else if (baton->p_mgxapi->context == MGX_METHOD_OBJECT_ID_DATE) {
                   key = mongox_new_string8(isolate, (char *) "DateText", 1);
                   value = mongox_new_string8(isolate, baton->p_mgxapi->output, 1);
-                  baton->json_result->Set(key, value);
+                  MGX_SET(baton->json_result, key, value);
                }
             }
          }
