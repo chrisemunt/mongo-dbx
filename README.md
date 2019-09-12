@@ -1,6 +1,6 @@
 # mongo-dbx
 
-Synchronous and Asynchronous access from Node.js to the Mongo Database from Node.js.
+Synchronous and Asynchronous access to the Mongo Database from Node.js.
 
 Chris Munt <cmunt@mgateway.com>  
 12 September 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
