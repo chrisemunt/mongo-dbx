@@ -3,9 +3,9 @@
 Synchronous and Asynchronous access to the Mongo Database from Node.js.
 
 Chris Munt <cmunt@mgateway.com>  
-12 September 2019, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
+6 May 2020, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
 
-* Verified to work with Node.js v4 to v12.
+* Verified to work with Node.js v4 to v14.
 * [Release Notes](#RelNotes) can be found at the end of this document.
 
 ## Pre-requisites 
@@ -320,9 +320,42 @@ Example (*Get statistics for the 'person' Collection*):
 
        var result = db.command("company", {collStats : "employee"});
 
+#### Using Node.js/V8 worker threads
+
+**mongo-dbx** functionality can now be used with Node.js/V8 worker threads.  This enhancement is available with Node.js v12 (and later).
+
+The following scheme illustrates how **mongo-dbx** should be used in threaded Node.js applications.
+
+
+       const { Worker, isMainThread, parentPort, threadId } = require('worker_threads');
+
+       if (isMainThread) {
+          // start the threads
+          const worker1 = new Worker(__filename);
+          const worker2 = new Worker(__filename);
+
+          // process messages received from threads
+          worker1.on('message', (message) => {
+             console.log(message);
+          });
+          worker2.on('message', (message) => {
+             console.log(message);
+          });
+       } else {
+          var mongodb = require('mongo-dbx');
+          var db = new mongodb.server();
+          var result = db.open({address: <server>, port: <port>});;
+
+          // do some work
+
+          var result = db.close();
+          // tell the parent that we're done
+          parentPort.postMessage("threadId=" + threadId + " Done");
+       }
+
 ## License
 
-Copyright (c) 2013-2017 M/Gateway Developments Ltd,
+Copyright (c) 2013-2020 M/Gateway Developments Ltd,
 Surrey UK.                                                      
 All rights reserved.
  
@@ -349,3 +382,12 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ### v1.3.12 (12 September 2019)
 
 * Internal changes to replace V8/Node.js API functionality that was deprecated in Node.js v12.
+
+### v1.4.13 (6 May 2020)
+
+* Verify that **mongo-dbx** will build and work with Node.js v14.x.x.
+* Introduce support for Node.js/V8 worker threads (for Node.js v12.x.x. and later).
+	* See the section on 'Using Node.js/V8 worker threads'.
+
+
+
