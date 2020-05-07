@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2013-2019 M/Gateway Developments Ltd,                      |
+   | Copyright (c) 2013-2020 M/Gateway Developments Ltd,                      |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -69,6 +69,11 @@ Version 1.3.11 16 August 2019:
 Version 1.3.12 12 September 2019:
    Replace functionality that was deprecated in Node.js/V8 v12.
 
+Version 1.4.13 6 May 2020:
+   Verify that the code base works with Node.js v14.x.x.
+   Introduce support for Node.js/V8 worker threads (for Node.js v12.x.x. and later).
+   Suppress a number of benign 'cast-function-type' compiler warnings when building on the Raspberry Pi.
+
 */
 
 
@@ -109,13 +114,23 @@ Version 1.3.12 12 September 2019:
 #include <sys/time.h>
 #endif
 
+#if defined(__GNUC__) && __GNUC__ >= 8
+#define DISABLE_WCAST_FUNCTION_TYPE _Pragma("GCC diagnostic push") _Pragma("GCC diagnostic ignored \"-Wcast-function-type\"")
+#define DISABLE_WCAST_FUNCTION_TYPE_END _Pragma("GCC diagnostic pop")
+#else
+#define DISABLE_WCAST_FUNCTION_TYPE
+#define DISABLE_WCAST_FUNCTION_TYPE_END
+#endif
+
+DISABLE_WCAST_FUNCTION_TYPE
+
 #include <v8.h>
 #include <node.h>
 #include <node_version.h>
 
 #define MGX_VERSION_MAJOR        1
-#define MGX_VERSION_MINOR        3
-#define MGX_VERSION_BUILD        12
+#define MGX_VERSION_MINOR        4
+#define MGX_VERSION_BUILD        13
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -132,8 +147,15 @@ Version 1.3.12 12 September 2019:
 
 #define MGX_ERROR_SIZE              512
 
-
 #if MGX_NODE_VERSION >= 120000
+#define MGX_GET(a,b)                a->Get(icontext,b).ToLocalChecked()
+#define MGX_SET(a,b,c)              a->Set(icontext,b,c).FromJust()
+#define MGX_TONUMBER(a)             a->NumberValue(icontext).ToChecked()
+#define MGX_TOINT32(a)              a->Int32Value(icontext).FromJust()
+#define MGX_TOUINT32(a)             a->Uint32Value(icontext).FromJust()
+#define MGX_TOOBJECT(a)             a->ToObject(icontext).ToLocalChecked()
+#define MGX_TOSTRING(a)             a->ToString(icontext).ToLocalChecked()
+#elif MGX_NODE_VERSION >= 100000
 #define MGX_GET(a,b)                a->Get(icontext,b).ToLocalChecked()
 #define MGX_SET(a,b,c)              a->Set(icontext,b,c).FromJust()
 #define MGX_TONUMBER(a)             a->NumberValue(icontext).ToChecked()
@@ -335,6 +357,13 @@ typedef struct tagMGXAPI {
 extern int errno;
 #endif
 
+#if defined(_WIN32)
+CRITICAL_SECTION  mgx_async_mutex;
+#else
+pthread_mutex_t   mgx_async_mutex        = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+
 void *                  mgx_malloc                    (int size, short id);
 int                     mgx_free                      (void *p, short id);
 bson *                  mgx_bson_alloc                (MGXAPI * p_mgxapi, int init, short id);
@@ -349,6 +378,27 @@ int                     mgx_dso_unload                (MGXPLIB p_library);
 
 using namespace node;
 using namespace v8;
+
+
+#if defined(_WIN32)
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)
+{
+   switch (fdwReason)
+   { 
+      case DLL_PROCESS_ATTACH:
+         InitializeCriticalSection(&mgx_async_mutex);
+         break;
+      case DLL_THREAD_ATTACH:
+         break;
+      case DLL_THREAD_DETACH:
+         break;
+      case DLL_PROCESS_DETACH:
+         DeleteCriticalSection(&mgx_async_mutex);
+         break;
+   }
+   return TRUE;
+}
+#endif
 
 
 class server : public node::ObjectWrap
@@ -675,9 +725,9 @@ public:
    static Persistent<Function> s_ct;
 
 #if MGX_NODE_VERSION >= 100000
-   static void Init(Local<Object> target)
+   static void Init(Local<Object> exports)
 #else
-   static void Init(Handle<Object> target)
+   static void Init(Handle<Object> exports)
 #endif
    {
       Isolate* isolate = Isolate::GetCurrent();
@@ -704,10 +754,10 @@ public:
 #if MGX_NODE_VERSION >= 120000
       Local<Context> icontext = isolate->GetCurrentContext();
       s_ct.Reset(isolate, t->GetFunction(icontext).ToLocalChecked());
-      target->Set(icontext, mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction(icontext).ToLocalChecked()).FromJust();
+      exports->Set(icontext, mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction(icontext).ToLocalChecked()).FromJust();
 #else
       s_ct.Reset(isolate, t->GetFunction());
-      target->Set(mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction());
+      exports->Set(mongox_new_string8(isolate, (char *) "server", 1), t->GetFunction());
 #endif
 
       return;
@@ -745,7 +795,7 @@ public:
    static mongo_baton_t * mongox_make_baton(server *s, int js_narg, const FunctionCallbackInfo<Value>& args, int context)
    {
       Isolate* isolate = args.GetIsolate();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       HandleScope scope(isolate);
@@ -1293,7 +1343,7 @@ mongox_make_baton_exit:
    static int mongox_parse_json_object(server *s, mongo_baton_t * baton, Local<Object> jobj, char *jobj_name, bson *bobj, int jobj_no, int type, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       HandleScope scope(isolate);
@@ -1423,7 +1473,7 @@ mongox_make_baton_exit:
  static int mongox_parse_json_array(server *s, mongo_baton_t * baton, Local<Array> jarray, char *jobj_name, bson *bobj, int jobj_no, int type, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       HandleScope scope(isolate);
@@ -1507,7 +1557,7 @@ mongox_make_baton_exit:
    static int mongox_parse_bson_object(server *s, mongo_baton_t * baton, Local<Object> jobj, bson *bobj, bson_iterator *iterator, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       EscapableHandleScope handle_scope(isolate);
@@ -1624,7 +1674,7 @@ mongox_make_baton_exit:
    static int mongox_parse_bson_array(server *s, mongo_baton_t * baton, Local<Array> jarray, char *jobj_name, bson *bobj, bson_iterator *iterator, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       EscapableHandleScope handle_scope(isolate);
@@ -1883,7 +1933,7 @@ mongox_make_baton_exit:
    static Local<Object> mongox_result_object(mongo_baton_t * baton, int context)
    {
       Isolate* isolate = Isolate::GetCurrent();
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 100000
       Local<Context> icontext = isolate->GetCurrentContext();
 #endif
       EscapableHandleScope handle_scope(isolate);
@@ -2726,9 +2776,48 @@ mongox_make_baton_exit:
       MGX_RETURN_ASYNC;
    }
 
-
-
 };
+
+
+/* v1.4.13 */
+#if MGX_NODE_VERSION >= 120000
+class mgx_addon_data
+{
+
+public:
+
+   mgx_addon_data(Isolate* isolate, Local<Object> exports):
+      call_count(0) {
+         /* Link the existence of this object instance to the existence of exports. */
+         exports_.Reset(isolate, exports);
+         exports_.SetWeak(this, DeleteMe, WeakCallbackType::kParameter);
+      }
+
+   ~mgx_addon_data() {
+      if (!exports_.IsEmpty()) {
+         /* Reset the reference to avoid leaking data. */
+         exports_.ClearWeak();
+         exports_.Reset();
+      }
+   }
+
+   /* Per-addon data. */
+   int call_count;
+
+private:
+
+   /* Method to call when "exports" is about to be garbage-collected. */
+   static void DeleteMe(const WeakCallbackInfo<mgx_addon_data>& info) {
+      delete info.GetParameter();
+   }
+
+   /*
+   Weak handle to the "exports" object. An instance of this class will be
+   destroyed along with the exports object to which it is weakly bound.
+   */
+   v8::Persistent<v8::Object> exports_;
+};
+#endif
 
 
 Persistent<Function> server::s_ct;
@@ -2737,22 +2826,52 @@ Persistent<Function> server::s_ct;
 extern "C" {
 #if defined(_WIN32)
 #if MGX_NODE_VERSION >= 100000
-void __declspec(dllexport) init (Local<Object> target)
+void __declspec(dllexport) init (Local<Object> exports)
 #else
-void __declspec(dllexport) init (Handle<Object> target)
+void __declspec(dllexport) init (Handle<Object> exports)
 #endif
 #else
 #if MGX_NODE_VERSION >= 100000
-static void init (Local<Object> target)
+static void init (Local<Object> exports)
 #else
-static void init (Handle<Object> target)
+static void init (Handle<Object> exports)
 #endif
 #endif
-   {
-       server::Init(target);
-   }
+{
+   server::Init(exports);
+}
+
+#if MGX_NODE_VERSION >= 120000
+
+/* exports, module, context */
+extern "C" NODE_MODULE_EXPORT void
+NODE_MODULE_INITIALIZER(Local<Object> exports,
+                        Local<Value> module,
+                        Local<Context> context) {
+   Isolate* isolate = context->GetIsolate();
+
+   /* Create a new instance of mgx_addon_data for this instance of the addon. */
+   mgx_addon_data * data = new mgx_addon_data(isolate, exports);
+   /* Wrap the data in a v8::External so we can pass it to the method we expose. */
+   /* Local<External> external = External::New(isolate, data); */
+   External::New(isolate, data);
+
+   init(exports);
+
+   /*
+   Expose the method "Method" to JavaScript, and make sure it receives the
+   per-addon-instance data we created above by passing `external` as the
+   third parameter to the FunctionTemplate constructor.
+   exports->Set(context, String::NewFromUtf8(isolate, "method", NewStringType::kNormal).ToLocalChecked(), FunctionTemplate::New(isolate, Method, external)->GetFunction(context).ToLocalChecked()).FromJust();
+   */
+
+}
+
+#else
 
    NODE_MODULE(server, init);
+
+#endif
 }
 
 
