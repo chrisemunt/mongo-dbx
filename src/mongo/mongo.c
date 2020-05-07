@@ -1335,11 +1335,13 @@ MONGO_EXPORT int mongo_find_one( mongo *conn, const char *ns, const bson *query,
 }
 
 MONGO_EXPORT void mongo_cursor_init( mongo_cursor *cursor, mongo *conn, const char *ns ) {
-    memset( cursor, 0, sizeof( mongo_cursor ) );
-    cursor->conn = conn;
-    cursor->ns = ( const char * )bson_malloc( strlen( ns ) + 1 );
-    strncpy( ( char * )cursor->ns, ns, strlen( ns ) + 1 );
-    cursor->current.data = NULL;
+   size_t len;
+   memset( cursor, 0, sizeof( mongo_cursor ) );
+   cursor->conn = conn;
+   len = (size_t) strlen(ns);
+   cursor->ns = ( const char * )bson_malloc(len + 1);
+   strncpy( ( char * )cursor->ns, ns, len + 1);
+   cursor->current.data = NULL;
 }
 
 MONGO_EXPORT void mongo_cursor_set_query( mongo_cursor *cursor, const bson *query ) {
