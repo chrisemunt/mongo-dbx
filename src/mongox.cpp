@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2013-2020 M/Gateway Developments Ltd,                      |
+   | Copyright (c) 2013-2021 M/Gateway Developments Ltd,                      |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -74,6 +74,12 @@ Version 1.4.13 6 May 2020:
    Introduce support for Node.js/V8 worker threads (for Node.js v12.x.x. and later).
    Suppress a number of benign 'cast-function-type' compiler warnings when building on the Raspberry Pi.
 
+Version 1.4.14 28 April 2021:
+   Verify that the code base works with Node.js v16.x.x.
+   Fix A number of faults related to the use of mongo-dbx functionality in Node.js/v8 worker threads.
+   - Notably, callback functions were not being fired correctly for some asynchronous invocations of mongo-dbx methods.
+
+
 */
 
 
@@ -130,7 +136,7 @@ DISABLE_WCAST_FUNCTION_TYPE
 
 #define MGX_VERSION_MAJOR        1
 #define MGX_VERSION_MINOR        4
-#define MGX_VERSION_BUILD        13
+#define MGX_VERSION_BUILD        14
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -221,16 +227,9 @@ DISABLE_WCAST_FUNCTION_TYPE
       return; \
    } \
 
-#define MGX_SET_CALLBACK(a) \
-   baton->a.Reset(isolate, a); \
-
 #define MGX_RETURN_VALUE(a) \
    args.GetReturnValue().Set(a); \
    return; \
-
-#define MGX_RETURN_UNDEFINED \
-   return; \
-
 
 #define MGX_CALLBACK_FUN(JSNARG, CB, ASYNC) \
    JSNARG = args.Length(); \
@@ -244,20 +243,6 @@ DISABLE_WCAST_FUNCTION_TYPE
 
 
 #define MGX_MONGOAPI_END()
-
-typedef void      async_rtn;
-
-/* int status = 0; */
-#define MGX_BEGIN_ASYNC(async, after, _data) \
-   uv_work_t *_req = new uv_work_t; \
-   _req->data = _data; \
-   uv_queue_work(uv_default_loop(), _req, async, after);
-
-#define MGX_RETURN_ASYNC         return;
-
-#define MGX_RETURN_ASYNC_AFTER \
-   delete req; \
-   MGX_RETURN_ASYNC;
 
 #define MGX_DEFAULT_OID_NAME           "_id"
 
@@ -428,6 +413,7 @@ struct mongo_baton_t {
       Local<Object>           json_result;
       Local<Array>            array_result;
       Persistent<Function>    cb;
+      Isolate                 *isolate;
       MGXAPI * p_mgxapi;
    };
 
@@ -1220,6 +1206,23 @@ mongox_make_baton_exit:
    }
 
 
+   /* v1.4.14 */
+   static int mongox_queue_task(void *work_cb, void *after_work_cb, mongo_baton_t *baton, short context)
+   {
+      uv_work_t *_req = new uv_work_t;
+      _req->data = baton;
+
+      /* v1.4.14 */
+#if MGX_NODE_VERSION >= 120000
+      uv_queue_work(GetCurrentEventLoop(baton->isolate), _req, (uv_work_cb) work_cb, (uv_after_work_cb) after_work_cb);
+#else
+      uv_queue_work(uv_default_loop(), _req, (uv_work_cb) work_cb, (uv_after_work_cb) after_work_cb);
+#endif
+
+      return 0;
+   }
+
+
    static int mongox_parse_options(server *s, mongo_baton_t * baton, char *options, int context)
    {
       int ret, eol, eot, len;
@@ -1872,7 +1875,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn mongox_invoke_callback(uv_work_t *req, int status)
+   static void mongox_invoke_callback(uv_work_t *req, int status)
    {
       Isolate* isolate = Isolate::GetCurrent();
       HandleScope scope(isolate);
@@ -1926,7 +1929,8 @@ mongox_make_baton_exit:
 
       mongox_destroy_baton(baton);
 
-      MGX_RETURN_ASYNC_AFTER;
+      delete req;
+      return;
    }
 
  
@@ -2078,14 +2082,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_About, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_About, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_mgx_version(s, baton);
@@ -2097,7 +2101,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_About(uv_work_t *req)
+   static void EIO_About(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2105,7 +2109,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2128,14 +2132,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Version, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Version, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_mgx_version(s, baton);
@@ -2147,7 +2151,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Version(uv_work_t *req)
+   static void EIO_Version(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2155,7 +2159,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2179,14 +2183,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Open, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Open, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       ret = s->mongox_open(s, baton);
@@ -2202,7 +2206,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Open(uv_work_t *req)
+   static void EIO_Open(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2210,7 +2214,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2238,14 +2242,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Close, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Close, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_close(s, baton);
@@ -2260,7 +2264,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Close(uv_work_t *req)
+   static void EIO_Close(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2268,7 +2272,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2294,14 +2298,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Retrieve, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Retrieve, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_retrieve(s, baton);
@@ -2316,7 +2320,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Retrieve(uv_work_t *req)
+   static void EIO_Retrieve(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2324,7 +2328,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2350,14 +2354,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Insert, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Insert, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_insert(s, baton);
@@ -2372,7 +2376,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Insert(uv_work_t *req)
+   static void EIO_Insert(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2380,7 +2384,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2406,14 +2410,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Insert, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Insert_Batch, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_insert_batch(s, baton);
@@ -2427,7 +2431,7 @@ mongox_make_baton_exit:
       MGX_RETURN_VALUE(json_result);
    }
 
-   static async_rtn EIO_Insert_Batch(uv_work_t *req)
+   static void EIO_Insert_Batch(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2435,7 +2439,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2461,14 +2465,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Update, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Update, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_update(s, baton);
@@ -2483,7 +2487,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Update(uv_work_t *req)
+   static void EIO_Update(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2491,7 +2495,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2517,14 +2521,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Remove, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Remove, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_remove(s, baton);
@@ -2539,7 +2543,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Remove(uv_work_t *req)
+   static void EIO_Remove(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2547,7 +2551,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2573,14 +2577,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Command, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Command, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_command(s, baton);
@@ -2593,7 +2597,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Command(uv_work_t *req)
+   static void EIO_Command(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2601,7 +2605,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2627,14 +2631,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Create_Index, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Create_Index, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_create_index(s, baton);
@@ -2647,7 +2651,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Create_Index(uv_work_t *req)
+   static void EIO_Create_Index(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2655,7 +2659,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2681,14 +2685,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Object_ID, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Object_ID, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_object_id(s, baton);
@@ -2709,7 +2713,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Object_ID(uv_work_t *req)
+   static void EIO_Object_ID(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2717,7 +2721,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 
@@ -2743,14 +2747,14 @@ mongox_make_baton_exit:
       if (async) {
 
          Local<Function> cb = Local<Function>::Cast(args[js_narg]);
-
-         MGX_SET_CALLBACK(cb);
+         baton->isolate = isolate;
+         baton->cb.Reset(isolate, cb);
 
          s->Ref();
 
-         MGX_BEGIN_ASYNC(EIO_Object_ID_Date, mongox_invoke_callback, baton);
+         mongox_queue_task((void *) EIO_Object_ID_Date, (void *) mongox_invoke_callback, baton, 0); /* v1.4.14 */
 
-         MGX_RETURN_UNDEFINED;
+         return;
       }
 
       s->mongox_object_id_date(s, baton);
@@ -2765,7 +2769,7 @@ mongox_make_baton_exit:
    }
 
 
-   static async_rtn EIO_Object_ID_Date(uv_work_t *req)
+   static void EIO_Object_ID_Date(uv_work_t *req)
    {
       mongo_baton_t *baton = static_cast<mongo_baton_t *>(req->data);
 
@@ -2773,7 +2777,7 @@ mongox_make_baton_exit:
 
       baton->s->m_count += baton->increment_by;
 
-      MGX_RETURN_ASYNC;
+      return;
    }
 
 };
