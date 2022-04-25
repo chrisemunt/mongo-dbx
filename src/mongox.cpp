@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2013-2021 M/Gateway Developments Ltd,                      |
+   | Copyright (c) 2013-2022 M/Gateway Developments Ltd,                      |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -79,6 +79,8 @@ Version 1.4.14 28 April 2021:
    Fix A number of faults related to the use of mongo-dbx functionality in Node.js/v8 worker threads.
    - Notably, callback functions were not being fired correctly for some asynchronous invocations of mongo-dbx methods.
 
+Version 1.4.14a 25 April 2022:
+   Verify that the code base works with Node.js v18.x.x.
 
 */
 
