@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2013-2022 M/Gateway Developments Ltd,                      |
+   | Copyright (c) 2013-2023 M/Gateway Developments Ltd,                      |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -81,6 +81,10 @@ Version 1.4.14 28 April 2021:
 
 Version 1.4.14a 25 April 2022:
    Verify that the code base works with Node.js v18.x.x.
+
+Version 1.4.14b 3 May 2023:
+   Verify that the code base works with Node.js v20.x.x.
+
 
 */
 
