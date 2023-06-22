@@ -3,7 +3,7 @@
 Synchronous and Asynchronous access to the Mongo Database from Node.js.
 
 Chris Munt <cmunt@mgateway.com>  
-3 May 2023, M/Gateway Developments Ltd [http://www.mgateway.com](http://www.mgateway.com)
+22 June 2023, MGateway Ltd [http://www.mgateway.com](http://www.mgateway.com)
 
 * Verified to work with Node.js v4 to v20.
 * [Release Notes](#RelNotes) can be found at the end of this document.
@@ -401,3 +401,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 ### v1.4.14b (3 May 2023)
 
 * Verify that **mongo-dbx** will build and work with Node.js v20.x.x.
+
+### v1.4.14c (22 June 2023)
+
+* Documentation update.

@@ -6,7 +6,7 @@
   },
   "name": "mongo-dbx",
   "description": "Synchronous and Asynchronous access to the Mongo Database from Node.js.",
-  "version": "1.4.14b",
+  "version": "1.4.14c",
   "maintainers": "Chris Munt <cmunt@mgateway.com>",
   "homepage": "https://github.com/chrisemunt/mongo-dbx",
   "repository": {
