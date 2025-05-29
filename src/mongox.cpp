@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2019-2024 MGateway Ltd                                     |
+   | Copyright (c) 2019-2025 MGateway Ltd                                     |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -91,6 +91,9 @@ Version 1.4.14c 22 June 2023:
 Version 1.4.14d 21 May 2024:
    Verify that the code base works with Node.js v22.x.x.
 
+Version 1.4.15 29 May 2025:
+   Verify that the code base works with Node.js v24.x.x.
+
 */
 
 
@@ -147,7 +150,7 @@ DISABLE_WCAST_FUNCTION_TYPE
 
 #define MGX_VERSION_MAJOR        1
 #define MGX_VERSION_MINOR        4
-#define MGX_VERSION_BUILD        14
+#define MGX_VERSION_BUILD        15
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -872,7 +875,7 @@ public:
          }
          else {
             value = MGX_TOSTRING(MGX_GET(baton->jobj_main, key));
-            mongox_write_char8(isolate, value, s->mongo_address, 1);
+            mongox_write_char8(isolate, value, s->mongo_address, sizeof(s->mongo_address), 1);
          }
 
          key = mongox_new_string8(isolate, (char *) "port", 1);
@@ -882,14 +885,14 @@ public:
          }
          else {
             value = MGX_TOSTRING(MGX_GET(baton->jobj_main, key));
-            mongox_write_char8(isolate, value, buffer, 1);
+            mongox_write_char8(isolate, value, buffer, sizeof(buffer), 1);
             s->mongo_port = (int) strtol(buffer, NULL, 10);
          }
       }
       else if (context == MGX_METHOD_INSERT) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Insert Method");
@@ -898,7 +901,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -924,7 +927,7 @@ public:
       else if (context == MGX_METHOD_INSERT_BATCH) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Insert Batch Method");
@@ -933,7 +936,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -975,7 +978,7 @@ public:
       else if (context == MGX_METHOD_UPDATE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Update Method");
@@ -984,7 +987,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1022,7 +1025,7 @@ public:
       else if (context == MGX_METHOD_RETRIEVE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Retrieve Method");
@@ -1031,7 +1034,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1071,7 +1074,7 @@ public:
          if (js_narg > (obj_argn + 4) && args[obj_argn + 4]->IsString()) {
             char buffer[256];
             value = MGX_TOSTRING(args[obj_argn + 4]);
-            mongox_write_char8(isolate, value, buffer, 1);
+            mongox_write_char8(isolate, value, buffer, sizeof(buffer), 1);
             ret = mongox_parse_options(s, baton, buffer, 0);
             if (ret) {
                goto mongox_make_baton_exit;
@@ -1081,7 +1084,7 @@ public:
       else if (context == MGX_METHOD_REMOVE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Namespace not specified for Remove Method");
@@ -1090,7 +1093,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1117,7 +1120,7 @@ public:
 
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Database not specified for Command Method");
@@ -1126,7 +1129,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1154,7 +1157,7 @@ public:
 
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo Database not specified for Create_Index Method");
@@ -1163,7 +1166,7 @@ public:
          obj_argn = 1;
          if (js_narg > 1 && args[1]->IsString()) {
             value = MGX_TOSTRING(args[1]);
-            mongox_write_char8(isolate, value, oid_name, 1);
+            mongox_write_char8(isolate, value, oid_name, sizeof(oid_name), 1);
             obj_argn = 2;
          }
          if (!oid_name[0]) {
@@ -1188,12 +1191,12 @@ public:
          }
          if (js_narg > (obj_argn + 1) && args[obj_argn + 1]->IsString()) {
             value = MGX_TOSTRING(args[obj_argn + 1]);
-            mongox_write_char8(isolate, value, baton->p_mgxapi->index_name, 1);
+            mongox_write_char8(isolate, value, baton->p_mgxapi->index_name, sizeof(baton->p_mgxapi->index_name), 1);
          }
          if (js_narg > (obj_argn + 2) && args[obj_argn + 2]->IsString()) {
             char buffer[256];
             value = MGX_TOSTRING(args[obj_argn + 2]);
-            mongox_write_char8(isolate, value, buffer, 1);
+            mongox_write_char8(isolate, value, buffer, sizeof(buffer), 1);
             ret = mongox_parse_options(s, baton, buffer, 0);
             if (ret) {
                goto mongox_make_baton_exit;
@@ -1203,7 +1206,7 @@ public:
       else if (context == MGX_METHOD_OBJECT_ID_DATE) {
          if (js_narg > 0) {
             file = Local<String>::Cast(args[0]);
-            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, 1);
+            mongox_write_char8(isolate, file, baton->p_mgxapi->file_name, sizeof(baton->p_mgxapi->file_name), 1);
          }
          else {
             strcpy(baton->p_mgxapi->error, "Mongo ObjectID not specified");
@@ -1383,7 +1386,7 @@ mongox_make_baton_exit:
          name = (char *) mgx_malloc(sizeof(char) * (name_len + 2), 2001);
          *name = '\0';
 
-         mongox_write_char8(isolate, name_str, name, 1);
+         mongox_write_char8(isolate, name_str, name, name_len, 1);
 
          if (n == 0 && (baton->p_mgxapi->context == MGX_METHOD_INSERT || baton->p_mgxapi->context == MGX_METHOD_INSERT_BATCH) && baton->p_mgxapi->level == 0) {
             if (strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name)) { /* no _id */
@@ -1452,7 +1455,7 @@ mongox_make_baton_exit:
             value = (char *) mgx_malloc(sizeof(char) * (value_len + 25), 2002);
             *value = '\0';
 
-            mongox_write_char8(isolate, value_str, value, 1);
+            mongox_write_char8(isolate, value_str, value, value_len, 1);
 
             if (!strcmp(name, baton->p_mgxapi->jobj_main_list[jobj_no].oid_name)) {
 
@@ -1558,7 +1561,7 @@ mongox_make_baton_exit:
             value = (char *) mgx_malloc(sizeof(char) * (value_len + 1), 2002);
             *value = '\0';
 
-            mongox_write_char8(isolate, value_str, value, 1);
+            mongox_write_char8(isolate, value_str, value, value_len, 1);
 
             bson_append_string(bobj, name, value);
          }
@@ -1807,7 +1810,9 @@ mongox_make_baton_exit:
    static int mongox_string8_length(Isolate * isolate, Local<String> str, int utf8)
    {
       if (utf8) {
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 240000
+         return str->Utf8LengthV2(isolate); /* v1.4.15 */
+#elif MGX_NODE_VERSION >= 120000
          return str->Utf8Length(isolate);
 #else
          return str->Utf8Length();
@@ -1865,17 +1870,22 @@ mongox_make_baton_exit:
    }
 
 
-   static int mongox_write_char8(v8::Isolate * isolate, Local<String> str, char * buffer, int utf8)
+   static int mongox_write_char8(v8::Isolate * isolate, Local<String> str, char * buffer, int buffer_size, int utf8)
    {
       if (utf8) {
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 240000
+         return str->WriteUtf8V2(isolate, buffer, buffer_size, v8::String::WriteFlags::kNullTerminate); /* v1.4.15 */
+#elif MGX_NODE_VERSION >= 120000
          return str->WriteUtf8(isolate, buffer);
 #else
          return str->WriteUtf8(buffer);
 #endif
       }
       else {
-#if MGX_NODE_VERSION >= 120000
+#if MGX_NODE_VERSION >= 240000
+         str->WriteOneByteV2(isolate, 0, str->Length(), (uint8_t *) buffer, v8::String::WriteFlags::kNullTerminate); /* v1.4.15 */
+         return 0;
+#elif MGX_NODE_VERSION >= 120000
          return str->WriteOneByte(isolate, (uint8_t *) buffer);
 #elif MGX_NODE_VERSION >= 1200
          return str->WriteOneByte((uint8_t *) buffer);
