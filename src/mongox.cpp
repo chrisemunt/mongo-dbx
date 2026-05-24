@@ -3,7 +3,7 @@
    | mongox: Synchronous and Asynchronous access to MongoDB                   |
    | Author: Chris Munt cmunt@mgateway.com                                    |
    |                    chris.e.munt@gmail.com                                |
-   | Copyright (c) 2019-2025 MGateway Ltd                                     |
+   | Copyright (c) 2019-2026 MGateway Ltd                                     |
    | Surrey UK.                                                               |
    | All rights reserved.                                                     |
    |                                                                          |
@@ -94,6 +94,9 @@ Version 1.4.14d 21 May 2024:
 Version 1.4.15 29 May 2025:
    Verify that the code base works with Node.js v24.x.x.
 
+Version 1.4.16 24 May 2026:
+   Verify that the code base works with Node.js v26.x.x.
+
 */
 
 
@@ -150,7 +153,7 @@ DISABLE_WCAST_FUNCTION_TYPE
 
 #define MGX_VERSION_MAJOR        1
 #define MGX_VERSION_MINOR        4
-#define MGX_VERSION_BUILD        15
+#define MGX_VERSION_BUILD        16
 #define MGX_VERSION              MGX_VERSION_MAJOR "." MGX_VERSION_MINOR "." MGX_VERSION_BUILD
 
 #define MGX_NODE_VERSION         (NODE_MAJOR_VERSION * 10000) + (NODE_MINOR_VERSION * 100) + NODE_PATCH_VERSION
@@ -2873,7 +2876,12 @@ extern "C" NODE_MODULE_EXPORT void
 NODE_MODULE_INITIALIZER(Local<Object> exports,
                         Local<Value> module,
                         Local<Context> context) {
+/* v1.4.16 */
+#if MGX_NODE_VERSION >= 250000
+   Isolate* isolate = Isolate::GetCurrent();
+#else
    Isolate* isolate = context->GetIsolate();
+#endif
 
    /* Create a new instance of mgx_addon_data for this instance of the addon. */
    mgx_addon_data * data = new mgx_addon_data(isolate, exports);
